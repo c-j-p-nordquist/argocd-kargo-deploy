@@ -52,9 +52,12 @@ approving the decisions that matter.
 | 5 | `akd apply --plan <hash>` | Yes |
 | 6 | `akd verify` | No |
 
-1. `preflight` inspects the cluster: distro, Kubernetes version, whether
-   NetworkPolicy is enforced, Pod Security Admission, ingress or Gateway API,
-   storage classes.
+1. `preflight` inspects the cluster: distro, Kubernetes version, whether the
+   kubeconfig has the rights to install, whether NetworkPolicy is enforced,
+   whether platform components are already installed, and whether a Gateway
+   API or ingress controller is available. Where the API cannot answer a
+   question (encryption of Secrets at rest, for example) it says so instead of
+   guessing.
 2. `questions` emits the questionnaire as JSON, already narrowed by what
    preflight found. Each question carries an id, the prompt, the options, the
    secure default, and a plain-language note on the security consequence of
@@ -200,8 +203,9 @@ this backend:
 - There is no copy in any external system. If the cluster is lost, the secrets
   are lost and must be re-seeded from their original sources.
 - There is no external audit trail, rotation, or versioning.
-- Protection at rest is whatever the cluster provides for etcd. Preflight
-  checks for etcd encryption where it can and warns when it cannot confirm it.
+- Protection at rest is whatever the cluster provides for etcd. The Kubernetes
+  API does not reveal whether etcd encryption is on, so preflight reports it
+  as unknown and says how to check it on that distro.
 - Anyone with cluster-admin can read them.
 
 The CLI states this when the backend is selected, selecting it requires a

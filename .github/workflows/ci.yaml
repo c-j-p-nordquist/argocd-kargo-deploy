@@ -33,3 +33,12 @@ jobs:
         run: |
           docker compose --profile cli run --rm akd questions --output json
           docker compose --profile cli run --rm -T akd validate --file - < examples/platform.yaml
+
+      - name: End-to-end preflight against a throwaway cluster
+        run: |
+          docker compose --profile e2e up -d --wait k3s
+          docker compose --profile e2e run --rm e2e preflight --kubeconfig /kube/kubeconfig.yaml --output json
+
+      - name: Show cluster logs on failure
+        if: failure()
+        run: docker compose --profile e2e logs --tail 100 k3s

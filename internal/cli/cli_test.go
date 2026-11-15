@@ -66,7 +66,7 @@ func TestUnexpectedArgument(t *testing.T) {
 }
 
 func TestNotImplementedCommandsReportJSONError(t *testing.T) {
-	for _, name := range []string{"preflight", "plan", "apply", "verify"} {
+	for _, name := range []string{"plan", "apply", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout, stderr := run(name, "--output", "json")
 			if code != ExitNotImplemented {
@@ -208,5 +208,15 @@ func TestSchemaIsJSON(t *testing.T) {
 	}
 	if got["additionalProperties"] != false {
 		t.Errorf("schema must reject unknown top-level fields")
+	}
+}
+
+func TestPreflightWithMissingKubeconfig(t *testing.T) {
+	code, stdout, stderr := run("preflight", "--kubeconfig", "does-not-exist.yaml", "--output", "json")
+	if code != ExitFailure {
+		t.Errorf("exit = %d, want %d", code, ExitFailure)
+	}
+	if stdout != "" || !strings.Contains(stderr, `"kubeconfig_invalid"`) {
+		t.Errorf("stdout = %q, stderr = %s", stdout, stderr)
 	}
 }

@@ -17,6 +17,12 @@ installation needs, each option's security consequence, and the secure default.
 docker compose --profile cli run --rm --build akd questions
 ```
 
+`akd preflight` inspects the cluster your kubeconfig points at, without
+changing it: Kubernetes version, distro, whether the kubeconfig can install,
+whether NetworkPolicy is enforced, and whether any platform component is
+already there. See the [agent guide](AGENTS.md) for how to run it against a
+real cluster.
+
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security
 baseline without a written acknowledgement, and it lists the acknowledged

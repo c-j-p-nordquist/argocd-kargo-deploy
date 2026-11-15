@@ -6,14 +6,18 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/kube"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/preflight"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/questions"
 )
 
@@ -30,8 +34,9 @@ const (
 	ExitFailure        = 1
 	ExitUsage          = 2
 	ExitNotImplemented = 3
-	// ExitInvalid means the command ran and found the input invalid. The
-	// details are in the command's normal output, not in an error.
+	// ExitInvalid means the command ran and what it checked did not pass: an
+	// invalid file, or a cluster that is not ready. The details are in the
+	// command's normal output, not in an error.
 	ExitInvalid = 4
 )
 
@@ -54,6 +59,10 @@ type env struct {
 	format string
 	// file is the path given with --file, for commands that take one.
 	file string
+	// kubeconfig and kubeContext select the cluster, for commands that
+	// connect to one.
+	kubeconfig  string
+	kubeContext string
 }
 
 // exitCode lets a command finish normally with a non-zero exit code.
@@ -73,7 +82,7 @@ type command struct {
 
 func commands() []command {
 	return []command{
-		{name: "preflight", summary: "Inspect the cluster and report what it supports", run: notImplemented("preflight")},
+		{name: "preflight", summary: "Inspect the cluster and report what it supports", flags: clusterFlags, run: runPreflight},
 		{name: "questions", summary: "Print the installation questionnaire", run: runQuestions},
 		{name: "schema", summary: "Print the JSON Schema for platform.yaml", run: runSchema},
 		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
@@ -309,5 +318,65 @@ func printValidation(w io.Writer, file string, res platform.Result) {
 	fmt.Fprintf(w, "\nAcknowledged departures from the secure defaults: %d\n", len(res.Deviations))
 	for _, d := range res.Deviations {
 		fmt.Fprintf(w, "\n  %s = %s\n    consequence: %s\n    reason given: %s\n", d.Field, d.Option, d.Security, d.Reason)
+	}
+}
+
+func clusterFlags(fs *flag.FlagSet, e *env) {
+	fs.StringVar(&e.kubeconfig, "kubeconfig", "", "`path` to the kubeconfig (default: $KUBECONFIG, then ~/.kube/config)")
+	fs.StringVar(&e.kubeContext, "context", "", "kubeconfig context `name` (default: the current context)")
+}
+
+func runPreflight(e *env) error {
+	client, err := kube.Connect(e.kubeconfig, e.kubeContext)
+	if err != nil {
+		return &Error{
+			Code:    "kubeconfig_invalid",
+			Message: "could not load the kubeconfig: " + err.Error(),
+			Hint:    "pass --kubeconfig and --context, or set KUBECONFIG",
+			exit:    ExitFailure,
+		}
+	}
+	report, err := preflight.Run(context.Background(), client, client.Context)
+	if err != nil {
+		return &Error{
+			Code:    "cluster_unreachable",
+			Message: "could not reach the cluster: " + err.Error(),
+			Hint:    "check that the cluster is running and the kubeconfig credentials are current",
+			exit:    ExitFailure,
+		}
+	}
+
+	if e.format == "json" {
+		if err := writeJSON(e.stdout, report); err != nil {
+			return err
+		}
+	} else {
+		printPreflight(e.stdout, report)
+	}
+	if !report.Ready {
+		return exitCode(ExitInvalid)
+	}
+	return nil
+}
+
+func printPreflight(w io.Writer, r preflight.Report) {
+	nodes := "unknown number of nodes"
+	if r.Cluster.Nodes >= 0 {
+		nodes = fmt.Sprintf("%d node(s)", r.Cluster.Nodes)
+	}
+	fmt.Fprintf(w, "Cluster: context %q, Kubernetes %s, distro %s, %s\n", r.Cluster.Context, r.Cluster.KubernetesVersion, r.Cluster.Distro, nodes)
+	for _, c := range r.Checks {
+		fmt.Fprintf(w, "\n  %-7s %s  [%s]\n          %s\n", strings.ToUpper(string(c.Status)), c.Title, c.ID, c.Message)
+		if c.Hint != "" {
+			fmt.Fprintf(w, "          hint: %s\n", c.Hint)
+		}
+	}
+	for field, value := range r.Suggestions {
+		fmt.Fprintf(w, "\nSuggested answer: %s = %s\n", field, value)
+	}
+	if r.Ready {
+		fmt.Fprintln(w, "\nNo check failed. Review the warnings before continuing.")
+	} else {
+		fmt.Fprintln(w, "\nAt least one check failed. Fix it before continuing.")
 	}
 }

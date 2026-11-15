@@ -8,22 +8,41 @@ helping a user install the platform and when changing the code.
 
 ## Installing the platform with a user
 
-The intended flow is below. `questions`, `validate`, `schema` and `version`
-are implemented so far; the other commands exit with code 3 and the error code
-`not_implemented`.
+The intended flow is below. `preflight`, `questions`, `validate`, `schema` and
+`version` are implemented so far; the other commands exit with code 3 and the
+error code `not_implemented`.
 
 | Step | Command | Changes the cluster | Implemented |
 |---|---|---|---|
-| 1 | `akd preflight` | No | No |
+| 1 | `akd preflight` | No | Yes |
 | 2 | `akd questions` | No | Yes |
 | 3 | `akd validate` | No | Yes |
 | 4 | `akd plan` | No | No |
 | 5 | `akd apply --plan <hash>` | Yes | No |
 | 6 | `akd verify` | No | No |
 
+### Inspecting the cluster
+
+Run `akd preflight --output json` first. It uses the current kubeconfig
+context; pass `--kubeconfig` and `--context` to choose another. Confirm the
+`cluster.context` in the result with the user before going further, so the
+platform is not installed on the wrong cluster.
+
+- `ready` is false when any check has status `fail`. Stop and help the user fix
+  it.
+- Tell the user about every `warn` and `unknown` check. `unknown` means the
+  API cannot answer the question, so the user has to check it another way; the
+  `hint` says how.
+- `suggestions` maps a `platform.yaml` field to the answer that fits this
+  cluster. Offer it as a recommendation; the user still decides.
+
+Preflight is read-only. It does not create, change or delete anything.
+
 ### Walking through the questionnaire
 
-1. Run `akd questions --output json`.
+1. Run `akd questions --output json`. It is not yet narrowed by the preflight
+   result, so use the preflight report yourself to rule out options the
+   cluster cannot support.
 2. Ask the user each question in order. For every option, tell them the text in
    its `security` field; that text is the reason the question exists.
 3. Recommend the `default` when there is one. A question with no default has no
@@ -77,7 +96,10 @@ another path, or `--file -` to read standard input.
 | 1 | The command failed |
 | 2 | Usage error: unknown command, flag or argument |
 | 3 | The command is not implemented yet |
-| 4 | The input is invalid; the problems are in the result on stdout |
+| 4 | What was checked did not pass; the details are in the result on stdout |
+
+`preflight` exits 4 when a check fails. An unreadable kubeconfig or an
+unreachable cluster is an error instead (exit 1).
 
 `validate` exits 4 when the file has problems. Each problem has a `field`, a
 stable `code`, a `message` and often a `hint`. A file that cannot be read or is
@@ -94,7 +116,37 @@ Development runs in containers. Do not install Go on the host.
 | Format | `docker compose run --rm dev gofmt -w .` |
 | Run the CLI from source | `docker compose run --rm dev go run ./cmd/akd questions` |
 | Build and run the release image | `docker compose --profile cli run --rm --build akd questions` |
+| Run preflight against a throwaway cluster | See below |
 | Validate a file with the release image | `docker compose --profile cli run --rm -T akd validate --file - < examples/platform.yaml` |
+
+### End-to-end test
+
+The `e2e` profile starts a throwaway single-node k3s cluster in a privileged
+container and runs the release image's `preflight` against it.
+
+```bash
+docker compose --profile e2e up -d --wait k3s
+```
+
+```bash
+docker compose --profile e2e run --rm --build e2e
+```
+
+```bash
+docker compose --profile e2e rm -sfv k3s e2e
+```
+
+### Running against a real cluster
+
+The release image has no shell and no cloud credential helpers, so it cannot
+use a kubeconfig that calls one (GKE, EKS and AKS kubeconfigs do). Build a
+binary for the host instead. This still needs no Go on the host:
+
+```bash
+docker compose run --rm -e GOOS=darwin -e GOARCH=arm64 dev go build -o bin/akd ./cmd/akd
+```
+
+Set `GOOS` and `GOARCH` for the host, then run `bin/akd preflight`.
 
 ### Conventions
 
@@ -111,3 +163,4 @@ Development runs in containers. Do not install Go on the host.
 | Module | Why it is needed |
 |---|---|
 | `go.yaml.in/yaml/v3` | Reads `platform.yaml`. It is the maintained successor to `gopkg.in/yaml.v3` and has no dependencies of its own. |
+| `k8s.io/client-go`, `k8s.io/api`, `k8s.io/apimachinery` | Talk to the cluster and load kubeconfigs, including credential helpers. They are the Kubernetes project's own client libraries. They bring in about 45 indirect modules, all pinned by hash in `go.sum`. |
