@@ -17,7 +17,18 @@ installation needs, each option's security consequence, and the secure default.
 docker compose --profile cli run --rm --build akd questions
 ```
 
-Add `--output json` for the machine-readable form an agent consumes.
+`akd validate` checks a file of answers against the questionnaire. It rejects
+missing answers, unknown fields and any option that weakens the security
+baseline without a written acknowledgement, and it lists the acknowledged
+departures from the secure defaults.
+
+```bash
+docker compose --profile cli run --rm -T akd validate --file - < examples/platform.yaml
+```
+
+Add `--output json` to either command for the machine-readable form an agent
+consumes. [examples/platform.yaml](examples/platform.yaml) shows the file
+format.
 
 ## Planned flow
 

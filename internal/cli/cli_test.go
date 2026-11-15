@@ -10,8 +10,12 @@ import (
 )
 
 func run(args ...string) (code int, stdout, stderr string) {
+	return runWithInput("", args...)
+}
+
+func runWithInput(stdin string, args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
-	code = Run(args, &out, &errOut)
+	code = Run(args, strings.NewReader(stdin), &out, &errOut)
 	return code, out.String(), errOut.String()
 }
 
@@ -62,7 +66,7 @@ func TestUnexpectedArgument(t *testing.T) {
 }
 
 func TestNotImplementedCommandsReportJSONError(t *testing.T) {
-	for _, name := range []string{"preflight", "validate", "plan", "apply", "verify"} {
+	for _, name := range []string{"preflight", "plan", "apply", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout, stderr := run(name, "--output", "json")
 			if code != ExitNotImplemented {
@@ -123,5 +127,86 @@ func TestQuestionsText(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("text output does not contain %q", want)
 		}
+	}
+}
+
+const examplePath = "../../examples/platform.yaml"
+
+func TestValidateExampleFile(t *testing.T) {
+	code, stdout, stderr := run("validate", "--file", examplePath, "--output", "json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stdout = %s, stderr = %s", code, stdout, stderr)
+	}
+	var got struct {
+		File       string `json:"file"`
+		Valid      bool   `json:"valid"`
+		Deviations []struct {
+			Question string `json:"question"`
+		} `json:"deviations"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if !got.Valid || got.File != examplePath {
+		t.Errorf("got %+v", got)
+	}
+	if len(got.Deviations) != 1 || got.Deviations[0].Question != "secrets-backend" {
+		t.Errorf("deviations = %+v, want the in-cluster secrets backend", got.Deviations)
+	}
+}
+
+func TestValidateInvalidFromStdin(t *testing.T) {
+	code, stdout, stderr := runWithInput("schemaVersion: v1alpha1\n", "validate", "--file", "-", "--output", "json")
+	if code != ExitInvalid {
+		t.Fatalf("exit = %d, want %d (stderr = %s)", code, ExitInvalid, stderr)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty: problems belong in the result", stderr)
+	}
+	var got struct {
+		Valid    bool `json:"valid"`
+		Problems []struct {
+			Code string `json:"code"`
+		} `json:"problems"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if got.Valid || len(got.Problems) == 0 {
+		t.Errorf("got %+v, want invalid with problems", got)
+	}
+}
+
+func TestValidateMissingFile(t *testing.T) {
+	code, _, stderr := run("validate", "--file", "does-not-exist.yaml", "--output", "json")
+	if code != ExitFailure {
+		t.Errorf("exit = %d, want %d", code, ExitFailure)
+	}
+	if !strings.Contains(stderr, `"file_not_found"`) {
+		t.Errorf("unexpected stderr: %s", stderr)
+	}
+}
+
+func TestValidateUnparseableYAML(t *testing.T) {
+	code, _, stderr := runWithInput("a: [unclosed\n", "validate", "--file", "-", "--output", "json")
+	if code != ExitFailure {
+		t.Errorf("exit = %d, want %d", code, ExitFailure)
+	}
+	if !strings.Contains(stderr, `"invalid_yaml"`) {
+		t.Errorf("unexpected stderr: %s", stderr)
+	}
+}
+
+func TestSchemaIsJSON(t *testing.T) {
+	code, stdout, _ := run("schema")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, want %d", code, ExitOK)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if got["additionalProperties"] != false {
+		t.Errorf("schema must reject unknown top-level fields")
 	}
 }

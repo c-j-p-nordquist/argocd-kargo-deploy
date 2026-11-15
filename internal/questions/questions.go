@@ -14,6 +14,12 @@ const (
 	TypeText   = "text"
 )
 
+// Text formats.
+const (
+	// FormatHTTPSURL is an absolute https:// URL.
+	FormatHTTPSURL = "https-url"
+)
+
 // Questionnaire is the full set of questions for one installation.
 type Questionnaire struct {
 	SchemaVersion string     `json:"schemaVersion"`
@@ -29,6 +35,8 @@ type Question struct {
 	Type   string `json:"type"`
 	Prompt string `json:"prompt"`
 	Help   string `json:"help,omitempty"`
+	// Format constrains the answer to a text question.
+	Format string `json:"format,omitempty"`
 	// Options is set for choice questions.
 	Options []Option `json:"options,omitempty"`
 	// Default is the most secure option. It is empty when the answer depends
@@ -82,6 +90,7 @@ func Default() Questionnaire {
 				ID:     "identity-oidc-issuer",
 				Field:  "identity.oidc.issuer",
 				Type:   TypeText,
+				Format: FormatHTTPSURL,
 				Prompt: "What is the OIDC issuer URL of your identity provider?",
 				Help:   "Sign-in is SSO only. The client secret is supplied as a reference, never as a value.",
 			},

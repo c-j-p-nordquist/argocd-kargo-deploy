@@ -59,8 +59,10 @@ approving the decisions that matter.
    preflight found. Each question carries an id, the prompt, the options, the
    secure default, and a plain-language note on the security consequence of
    each option. The agent walks the user through it.
-3. The answers land in one file, `platform.yaml`, which has a published JSON
-   Schema. `validate` checks it.
+3. The answers land in one file, `platform.yaml`. `validate` checks it
+   against the questionnaire: every question answered, no unknown fields, and
+   an acknowledgement for every option that weakens the baseline. `schema`
+   prints a JSON Schema generated from the same questionnaire, for editors.
 4. `plan` renders every manifest that would be applied and prints a summary
    plus a content hash of the full plan.
 5. `apply` only accepts a plan hash. What the user approved is exactly what is

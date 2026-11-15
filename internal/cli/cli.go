@@ -11,7 +11,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/questions"
 )
 
@@ -28,6 +30,9 @@ const (
 	ExitFailure        = 1
 	ExitUsage          = 2
 	ExitNotImplemented = 3
+	// ExitInvalid means the command ran and found the input invalid. The
+	// details are in the command's normal output, not in an error.
+	ExitInvalid = 4
 )
 
 // Error is a failure reported to the caller. Code is stable and safe to
@@ -43,24 +48,35 @@ type Error struct {
 func (e *Error) Error() string { return e.Message }
 
 type env struct {
+	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 	format string
+	// file is the path given with --file, for commands that take one.
+	file string
 }
+
+// exitCode lets a command finish normally with a non-zero exit code.
+type exitCode int
+
+func (c exitCode) Error() string { return fmt.Sprintf("exit code %d", int(c)) }
 
 type command struct {
 	name    string
 	summary string
 	// mutates reports whether the command changes the cluster.
 	mutates bool
-	run     func(e *env) error
+	// flags registers the command's own flags, if it has any.
+	flags func(fs *flag.FlagSet, e *env)
+	run   func(e *env) error
 }
 
 func commands() []command {
 	return []command{
 		{name: "preflight", summary: "Inspect the cluster and report what it supports", run: notImplemented("preflight")},
 		{name: "questions", summary: "Print the installation questionnaire", run: runQuestions},
-		{name: "validate", summary: "Check platform.yaml against the schema", run: notImplemented("validate")},
+		{name: "schema", summary: "Print the JSON Schema for platform.yaml", run: runSchema},
+		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
 		{name: "plan", summary: "Render what would be applied and print its hash", run: notImplemented("plan")},
 		{name: "apply", summary: "Apply a previously approved plan", mutates: true, run: notImplemented("apply")},
 		{name: "verify", summary: "Audit the cluster against the security baseline", run: notImplemented("verify")},
@@ -70,8 +86,8 @@ func commands() []command {
 
 // Run executes the CLI with the given arguments (without the program name)
 // and returns the process exit code.
-func Run(args []string, stdout, stderr io.Writer) int {
-	e := &env{stdout: stdout, stderr: stderr, format: "text"}
+func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	e := &env{stdin: stdin, stdout: stdout, stderr: stderr, format: "text"}
 
 	if len(args) == 0 {
 		usage(stderr)
@@ -101,10 +117,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 	fs := flag.NewFlagSet(cmd.name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	format := fs.String("output", "text", "output format: text or json")
+	format := fs.String("output", "text", "output format: `text or json`")
+	if cmd.flags != nil {
+		cmd.flags(fs, e)
+	}
 	if err := fs.Parse(args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			fmt.Fprintf(stdout, "%s %s: %s\n\nFlags:\n  --output text|json   output format (default text)\n", Name, cmd.name, cmd.summary)
+			fmt.Fprintf(stdout, "%s %s: %s\n\nFlags:\n", Name, cmd.name, cmd.summary)
+			fs.SetOutput(stdout)
+			fs.PrintDefaults()
 			return ExitOK
 		}
 		return e.fail(usageError(err.Error(), cmd.name))
@@ -118,6 +139,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := cmd.run(e); err != nil {
+		var code exitCode
+		if errors.As(err, &code) {
+			return int(code)
+		}
 		return e.fail(err)
 	}
 	return ExitOK
@@ -125,7 +150,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 
 func usage(w io.Writer) {
 	fmt.Fprintf(w, "%s installs and verifies a hardened Argo CD and Kargo platform.\n\n", Name)
-	fmt.Fprintf(w, "Usage: %s <command> [--output text|json]\n\nCommands:\n", Name)
+	fmt.Fprintf(w, "Usage: %s <command> [flags]\n\nEvery command accepts --output text|json. Run `%s <command> --help` for its flags.\n\nCommands:\n", Name, Name)
 	for _, c := range commands() {
 		note := ""
 		if c.mutates {
@@ -211,4 +236,78 @@ func runQuestions(e *env) error {
 		}
 	}
 	return nil
+}
+
+func runSchema(e *env) error {
+	return writeJSON(e.stdout, platform.Schema(questions.Default()))
+}
+
+func fileFlag(fs *flag.FlagSet, e *env) {
+	fs.StringVar(&e.file, "file", "platform.yaml", "`path` to the answers file, or - for standard input")
+}
+
+func runValidate(e *env) error {
+	var (
+		data []byte
+		err  error
+	)
+	if e.file == "-" {
+		data, err = io.ReadAll(e.stdin)
+	} else {
+		data, err = os.ReadFile(e.file)
+	}
+	if err != nil {
+		code, hint := "file_unreadable", ""
+		if errors.Is(err, os.ErrNotExist) {
+			code = "file_not_found"
+			hint = fmt.Sprintf("pass the path with --file, or answer the questions from `%s questions` first", Name)
+		}
+		return &Error{Code: code, Message: err.Error(), Hint: hint, exit: ExitFailure}
+	}
+
+	res, err := platform.Validate(data, questions.Default())
+	if err != nil {
+		return &Error{Code: "invalid_yaml", Message: err.Error(), exit: ExitFailure}
+	}
+
+	if e.format == "json" {
+		if err := writeJSON(e.stdout, struct {
+			File string `json:"file"`
+			platform.Result
+		}{e.file, res}); err != nil {
+			return err
+		}
+	} else {
+		name := e.file
+		if name == "-" {
+			name = "standard input"
+		}
+		printValidation(e.stdout, name, res)
+	}
+	if !res.Valid {
+		return exitCode(ExitInvalid)
+	}
+	return nil
+}
+
+func printValidation(w io.Writer, file string, res platform.Result) {
+	if !res.Valid {
+		fmt.Fprintf(w, "%s is not valid: %d problem(s)\n", file, len(res.Problems))
+		for _, p := range res.Problems {
+			fmt.Fprintf(w, "\n  %s: %s  [%s]\n", p.Field, p.Message, p.Code)
+			if p.Hint != "" {
+				fmt.Fprintf(w, "    hint: %s\n", p.Hint)
+			}
+		}
+		return
+	}
+	fmt.Fprintf(w, "%s is valid\n", file)
+	if len(res.Deviations) == 0 {
+		fmt.Fprintln(w, "No departures from the secure defaults.")
+		return
+	}
+	fmt.Fprintf(w, "\nAcknowledged departures from the secure defaults: %d\n", len(res.Deviations))
+	for _, d := range res.Deviations {
+		fmt.Fprintf(w, "\n  %s = %s\n    consequence: %s\n    reason given: %s\n", d.Field, d.Option, d.Security, d.Reason)
+	}
 }

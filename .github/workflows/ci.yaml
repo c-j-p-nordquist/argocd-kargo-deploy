@@ -30,4 +30,6 @@ jobs:
         run: docker compose --profile cli build akd
 
       - name: Smoke test release image
-        run: docker compose --profile cli run --rm akd questions --output json
+        run: |
+          docker compose --profile cli run --rm akd questions --output json
+          docker compose --profile cli run --rm -T akd validate --file - < examples/platform.yaml
