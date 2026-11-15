@@ -177,6 +177,10 @@ Set `GOOS` and `GOARCH` for the host, then run `bin/akd preflight`.
 by hand. `components/components.lock` and the manifests in `components/rendered/` are
 generated from it and embedded in the binary; never edit them directly.
 
+A weekly workflow does this and opens a pull request, using
+`go run ./tools/lockgen -update`, which picks the newest chart past the
+cooldown for every component. To do one by hand:
+
 1. Change the component's `version` in `components.yaml`.
 2. Regenerate the lock and the rendered manifests. This resolves every chart
    and image to a digest, verifies every image, renders each chart into

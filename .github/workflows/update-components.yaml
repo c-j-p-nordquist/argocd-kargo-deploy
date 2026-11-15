@@ -1,0 +1,68 @@
+name: update-components
+
+# Looks for newer versions of the platform components once a week. For each
+# one it takes the newest chart that is past the cooldown, verifies every
+# image, re-renders the manifests, and opens a pull request with the result.
+# Nothing is merged automatically.
+#
+# Requires the repository setting "Allow GitHub Actions to create and approve
+# pull requests". Pull requests opened with the workflow token do not trigger
+# the ci workflow, so this job runs the tests itself before opening one.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-components
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: automation/update-components
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Find, verify and render newer versions
+        run: docker compose --profile tools run --rm -T tools go run ./tools/lockgen -update > "$RUNNER_TEMP/summary.md"
+
+      - name: Stop if nothing changed
+        id: diff
+        run: |
+          cat "$RUNNER_TEMP/summary.md"
+          if git diff --quiet -- components; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test with the updated components
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          docker compose run --rm dev go vet ./...
+          docker compose run --rm dev go test ./...
+
+      - name: Open or update the pull request
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add components
+          git commit --message "Update platform components" --message "$(cat "$RUNNER_TEMP/summary.md")"
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --body-file "$RUNNER_TEMP/summary.md"
+          else
+            gh pr create --base main --head "$BRANCH" \
+              --title "Update platform components" \
+              --body-file "$RUNNER_TEMP/summary.md"
+          fi

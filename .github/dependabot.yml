@@ -1,0 +1,42 @@
+# Dependabot keeps the standard ecosystems current. A release must be 14 days
+# old before it is proposed, so a freshly compromised release is more likely
+# to be caught upstream first. Security updates are not delayed by cooldown.
+#
+# The platform components (Argo CD, Kargo and the rest) are not handled here.
+# tools/lockgen updates those, because each bump has to be resolved, verified
+# and re-rendered in the same change. See the update-components workflow.
+#
+# Not covered: the two helm checksums in the Dockerfile. Bump those by hand.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      kubernetes:
+        patterns:
+          - k8s.io/*
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14

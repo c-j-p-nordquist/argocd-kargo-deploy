@@ -181,10 +181,22 @@ only, and `verify` reports that gap instead of hiding it.
 
 ### Updates
 
-- A dependency bot opens pull requests that bump `components.yaml` (not set
-  up yet; bumps are manual for now).
-- A chart must be at least 14 days old before `lockgen` will lock it, so a
-  freshly compromised release is more likely to be caught upstream first.
+- **Platform components** are updated by `lockgen -update`. For each
+  component it takes the newest chart that is past the cooldown, resolves and
+  verifies every image, and re-renders the manifests, so an update is always
+  complete and verified in one change. A component whose new version fails
+  verification stays where it is, and the reason is reported. A weekly
+  workflow runs this and opens a pull request. Nothing is merged
+  automatically.
+- **Everything else** (Go modules, base image digests, compose image
+  digests, GitHub Actions) is updated by Dependabot. Dependabot is used
+  instead of a third-party bot so that nothing outside GitHub needs write
+  access to the repository.
+- **The cooldown is 14 days** in both: a release must be that old before it
+  is adopted, so a freshly compromised release is more likely to be caught
+  upstream first. Dependabot does not delay security updates.
+- The two helm checksums in the Dockerfile are not covered by either and are
+  bumped by hand.
 - CI re-runs all checks and posts the rendered diff, with new RBAC rules, CRDs
   and webhooks called out.
 - Platform upgrades are promoted through Kargo stages like any other change.
@@ -276,5 +288,3 @@ the CIS and NSA Kubernetes benchmarks.
 ## Open questions
 
 1. Name of the CLI.
-2. Whether 14 days is the right update cooldown. It is a first choice, not a
-   measured one.
