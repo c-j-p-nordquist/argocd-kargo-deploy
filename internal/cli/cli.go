@@ -27,6 +27,7 @@ import (
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/preflight"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/questions"
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/verify"
 )
 
 // Name is the name of the binary. It is a placeholder until a final name is
@@ -38,9 +39,11 @@ var Version = "dev"
 
 // Exit codes. These are part of the CLI's contract with agents and scripts.
 const (
-	ExitOK             = 0
-	ExitFailure        = 1
-	ExitUsage          = 2
+	ExitOK      = 0
+	ExitFailure = 1
+	ExitUsage   = 2
+	// ExitNotImplemented is reserved for commands that exist but do nothing
+	// yet. No command uses it at the moment.
 	ExitNotImplemented = 3
 	// ExitInvalid means the command ran and what it checked did not pass: an
 	// invalid file, or a cluster that is not ready. The details are in the
@@ -104,7 +107,7 @@ func commands() []command {
 		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
 		{name: "plan", summary: "Render what would be applied and print its hash", flags: planFlags, run: runPlan},
 		{name: "apply", summary: "Apply a previously approved plan", mutates: true, flags: applyFlags, run: runApply},
-		{name: "verify", summary: "Audit the cluster against the security baseline", run: notImplemented("verify")},
+		{name: "verify", summary: "Audit the cluster against the security baseline", flags: clusterFlags, run: runVerify},
 		{name: "version", summary: "Print the version", run: runVersion},
 	}
 }
@@ -191,17 +194,6 @@ func usageError(msg, cmd string) *Error {
 		Message: msg,
 		Hint:    fmt.Sprintf("run `%s %s --help`", Name, cmd),
 		exit:    ExitUsage,
-	}
-}
-
-func notImplemented(name string) func(*env) error {
-	return func(*env) error {
-		return &Error{
-			Code:    "not_implemented",
-			Message: fmt.Sprintf("%s is not implemented yet", name),
-			Hint:    "see docs/architecture.md for the planned behaviour",
-			exit:    ExitNotImplemented,
-		}
 	}
 }
 
@@ -593,4 +585,63 @@ func runApply(e *env) error {
 		fmt.Fprintf(e.stdout, "\nNot installed by this command: %s. Argo CD will sync these from Git once that is set up.\n", strings.Join(notApplied, ", "))
 	}
 	return nil
+}
+
+func runVerify(e *env) error {
+	client, err := kube.Connect(e.kubeconfig, e.kubeContext)
+	if err != nil {
+		return &Error{
+			Code:    "kubeconfig_invalid",
+			Message: "could not load the kubeconfig: " + err.Error(),
+			Hint:    "pass --kubeconfig and --context, or set KUBECONFIG",
+			exit:    ExitFailure,
+		}
+	}
+	dyn, err := dynamic.NewForConfig(client.Config)
+	if err != nil {
+		return err
+	}
+	lock, err := components.LoadLock()
+	if err != nil {
+		return err
+	}
+	report, err := verify.Run(context.Background(), client, dyn, lock, client.Context)
+	if err != nil {
+		return &Error{
+			Code:    "cluster_unreachable",
+			Message: "could not read the cluster: " + err.Error(),
+			Hint:    "check that the cluster is running and the kubeconfig credentials are current",
+			exit:    ExitFailure,
+		}
+	}
+
+	if e.format == "json" {
+		if err := writeJSON(e.stdout, report); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(e.stdout, "Cluster: context %q\nInstalled: %s\n", report.Context, orNone(report.Installed))
+		if len(report.NotInstalled) > 0 {
+			fmt.Fprintf(e.stdout, "Not installed, so not checked: %s\n", strings.Join(report.NotInstalled, ", "))
+		}
+		passed := 0
+		for _, c := range report.Checks {
+			if c.Status == verify.Pass {
+				passed++
+			}
+			fmt.Fprintf(e.stdout, "\n  %-7s %s  [%s]\n          %s\n          reference: %s\n", strings.ToUpper(string(c.Status)), c.Title, c.ID, c.Message, c.Reference)
+		}
+		fmt.Fprintf(e.stdout, "\n%d of %d checks passed.\n", passed, len(report.Checks))
+	}
+	if !report.Compliant {
+		return exitCode(ExitInvalid)
+	}
+	return nil
+}
+
+func orNone(items []string) string {
+	if len(items) == 0 {
+		return "nothing"
+	}
+	return strings.Join(items, ", ")
 }

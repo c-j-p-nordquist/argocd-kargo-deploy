@@ -16,6 +16,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/untrusted"
 )
 
 // MinKubernetesMinor is the oldest supported Kubernetes 1.x minor version.
@@ -88,7 +90,7 @@ func Run(ctx context.Context, client kubernetes.Interface, contextName string) (
 	r := Report{
 		Cluster: Cluster{
 			Context:           contextName,
-			KubernetesVersion: clean(version.GitVersion),
+			KubernetesVersion: untrusted.Clean(version.GitVersion),
 			Nodes:             -1,
 		},
 		Suggestions: map[string]string{},
@@ -134,26 +136,6 @@ func Run(ctx context.Context, client kubernetes.Interface, contextName string) (
 		r.Suggestions["secrets.backend"] = "azure-key-vault"
 	}
 	return r, nil
-}
-
-// clean makes a string that came from the cluster safe to show: printable
-// ASCII only, and short. Cluster content is untrusted and must not be able to
-// pose as instructions or break the output format.
-func clean(s string) string {
-	const max = 80
-	var b strings.Builder
-	for _, r := range s {
-		if b.Len() >= max {
-			b.WriteString("...")
-			break
-		}
-		if r >= 0x20 && r < 0x7f {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('?')
-		}
-	}
-	return b.String()
 }
 
 func detectDistro(gitVersion string, nodes []corev1.Node) string {
@@ -323,7 +305,7 @@ func checkExposure(ctx context.Context, client kubernetes.Interface, groups map[
 	}
 	if classes, err := client.NetworkingV1().IngressClasses().List(ctx, metav1.ListOptions{}); err == nil {
 		for _, class := range classes.Items {
-			ways = append(ways, fmt.Sprintf("IngressClass %q", clean(class.Name)))
+			ways = append(ways, fmt.Sprintf("IngressClass %q", untrusted.Clean(class.Name)))
 		}
 	}
 	if len(ways) == 0 {

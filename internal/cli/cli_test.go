@@ -65,26 +65,10 @@ func TestUnexpectedArgument(t *testing.T) {
 	}
 }
 
-func TestNotImplementedCommandsReportJSONError(t *testing.T) {
-	for _, name := range []string{"verify"} {
-		t.Run(name, func(t *testing.T) {
-			code, stdout, stderr := run(name, "--output", "json")
-			if code != ExitNotImplemented {
-				t.Errorf("exit = %d, want %d", code, ExitNotImplemented)
-			}
-			if stdout != "" {
-				t.Errorf("stdout = %q, want empty", stdout)
-			}
-			var got struct {
-				Error Error `json:"error"`
-			}
-			if err := json.Unmarshal([]byte(stderr), &got); err != nil {
-				t.Fatalf("stderr is not JSON: %v\n%s", err, stderr)
-			}
-			if got.Error.Code != "not_implemented" {
-				t.Errorf("code = %q, want not_implemented", got.Error.Code)
-			}
-		})
+func TestVerifyWithMissingKubeconfig(t *testing.T) {
+	code, stdout, stderr := run("verify", "--kubeconfig", "does-not-exist.yaml", "--output", "json")
+	if code != ExitFailure || stdout != "" || !strings.Contains(stderr, `"kubeconfig_invalid"`) {
+		t.Errorf("exit = %d, stdout = %q, stderr = %s", code, stdout, stderr)
 	}
 }
 

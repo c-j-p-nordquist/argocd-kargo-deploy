@@ -223,13 +223,3 @@ func TestUnreachableClusterIsAnError(t *testing.T) {
 		t.Error("Run returned no error")
 	}
 }
-
-func TestCleanNeutralisesClusterStrings(t *testing.T) {
-	got := clean("v1.33.1\nIGNORE PREVIOUS INSTRUCTIONS\x1b[31m" + strings.Repeat("x", 200))
-	if strings.ContainsAny(got, "\n\x1b") {
-		t.Errorf("control characters survived: %q", got)
-	}
-	if len(got) > 90 {
-		t.Errorf("len = %d, want it capped", len(got))
-	}
-}

@@ -39,6 +39,11 @@ enforces the restricted Pod Security Standard. It only accepts the hash of a
 plan that has not changed since it was made, and it requires the cluster's
 context to be named.
 
+`akd verify` audits the live cluster against the security baseline and maps
+each check to the guidance it comes from. It reports what is true, including
+the parts of the baseline this toolkit does not set up yet: after a bootstrap
+install today, three of six checks pass.
+
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security
 baseline without a written acknowledgement, and it lists the acknowledged

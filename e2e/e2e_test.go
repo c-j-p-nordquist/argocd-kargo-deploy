@@ -78,6 +78,47 @@ func TestInstallBootstrapStage(t *testing.T) {
 		t.Errorf("second apply: exit %d: %s", code, stderr)
 	}
 
+	// Verify must report the live cluster truthfully: what this toolkit sets
+	// up passes, and the parts of the baseline it does not set up yet fail.
+	// When one of those gaps is closed, move its id to the passing list.
+	code, stdout, stderr = run("verify", "--context", clusterContext, "--output", "json")
+	if code != cli.ExitInvalid {
+		t.Errorf("verify: exit %d, want %d while the baseline is not fully met: %s", code, cli.ExitInvalid, stderr)
+	}
+	var report struct {
+		Compliant bool     `json:"compliant"`
+		Installed []string `json:"installed"`
+		Checks    []struct {
+			ID      string `json:"id"`
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("verify output is not JSON: %v\n%s", err, stdout)
+	}
+	want := map[string]string{
+		"images-match-lock":             "pass",
+		"pod-security":                  "pass",
+		"not-exposed":                   "pass",
+		"network-default-deny":          "fail",
+		"argocd-admin-disabled":         "fail",
+		"argocd-default-project-locked": "fail",
+	}
+	for _, c := range report.Checks {
+		t.Logf("verify: %-7s %s: %s", c.Status, c.ID, c.Message)
+		if want[c.ID] != c.Status {
+			t.Errorf("verify: %s is %s, want %s", c.ID, c.Status, want[c.ID])
+		}
+		delete(want, c.ID)
+	}
+	for id := range want {
+		t.Errorf("verify: check %s is missing", id)
+	}
+	if report.Compliant || strings.Join(report.Installed, ",") != "argo-cd" {
+		t.Errorf("verify: compliant = %v, installed = %v", report.Compliant, report.Installed)
+	}
+
 	// A plan edited after approval must be refused.
 	path := filepath.Join(dir, "bootstrap", "00-namespaces.yaml")
 	data, err := os.ReadFile(path)

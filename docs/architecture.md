@@ -79,7 +79,11 @@ approving the decisions that matter.
    otherwise, and uses server-side apply without forcing, so it is safe to
    repeat and never takes over a resource something else manages. It
    installs the bootstrap stage only.
-6. `verify` audits the live cluster against the baseline.
+6. `verify` audits the live cluster against the baseline, read-only. Each
+   check names the guidance it comes from. A check fails whenever the cluster
+   does not meet the baseline, including where this toolkit does not set that
+   part up yet, so the report is a statement about the cluster and not about
+   the toolkit's intentions.
 
 ### Questionnaire topics
 
@@ -282,8 +286,21 @@ loading the secrets into the new store. No application manifest changes.
 - **Tenancy.** Each tenant's AppProject restricts source repos, destination
   namespaces and resource kinds.
 
-`akd verify` checks each item and maps it to the Argo CD security guidance and
-the CIS and NSA Kubernetes benchmarks.
+`akd verify` maps its checks to the Argo CD security guidance, the CIS
+Kubernetes Benchmark and the NSA/CISA Kubernetes Hardening Guide. The baseline
+above is the target. What is set up and checked today, after a bootstrap
+install:
+
+| Baseline item | Set up by the toolkit | Checked by `verify` |
+|---|---|---|
+| Images pinned by digest and matching the lock | Yes | Yes, passes |
+| Restricted Pod Security on platform namespaces | Yes | Yes, passes |
+| Nothing exposed outside the cluster | Yes | Yes, passes |
+| Default-deny ingress and egress | No | Yes, fails |
+| Argo CD admin account disabled | No | Yes, fails |
+| Argo CD default project locked | No | Yes, fails |
+| SSO, deny-by-default RBAC | No | No |
+| Kyverno policies, secrets delivery, Git credentials, tenancy | No (platform stage is not installed) | No |
 
 ## Documents to write
 
