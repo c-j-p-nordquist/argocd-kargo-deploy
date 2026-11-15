@@ -10,6 +10,8 @@ access:
 identity:
   oidc:
     issuer: https://accounts.example.com
+    clientId: argocd
+  adminGroup: platform-admins
 
 git:
   host: github

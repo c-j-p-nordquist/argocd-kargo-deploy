@@ -18,16 +18,17 @@ components:
     purpose: Syncs the cluster from Git.
     namespace: argocd
     release: argocd
+    # Sign-in goes straight to the user's identity provider, so the bundled
+    # Dex is not installed and the built-in admin account is off.
+    set:
+      - dex.enabled=false
+      - configs.cm.admin\.enabled=false
     chart: ghcr.io/argoproj/argo-helm/argo-cd
     version: 10.11.6
     signers:
       - images: quay.io/argoproj/argocd
         method: keyless
         identity: https://github.com/argoproj/argo-cd/.github/workflows/image-reuse.yaml@refs/tags/{tag}
-        issuer: https://token.actions.githubusercontent.com
-      - images: ghcr.io/dexidp/dex
-        method: keyless
-        identity: https://github.com/dexidp/dex/.github/workflows/artifacts.yaml@refs/tags/{tag}
         issuer: https://token.actions.githubusercontent.com
       - images: ecr-public.aws.com/docker/library/redis
         method: none

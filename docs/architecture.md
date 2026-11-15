@@ -155,7 +155,7 @@ Upstreams sign in different ways, and the lock records which applies:
 
 | Method | What is verified | Used by |
 |---|---|---|
-| `keyless` | A cosign signature from a named CI workflow, recorded in a public transparency log | Argo CD, Dex, External Secrets Operator, Kargo, Argo Rollouts |
+| `keyless` | A cosign signature from a named CI workflow, recorded in a public transparency log | Argo CD, External Secrets Operator, Kargo, Argo Rollouts |
 | `keyless-provenance` | A signed SLSA provenance attestation tied to the project's repository | Kyverno |
 | `key` | A cosign signature from the project's long-lived key, which is pinned by hash. Not in a transparency log | cert-manager |
 | `none` | Nothing; pinned by digest only, with the reason recorded | Redis |
@@ -166,8 +166,9 @@ is trusted by accident.
 Not done yet:
 
 - Charts are pinned by digest but their signatures are not checked.
-- Charts are rendered with near-default values. The hardened values that the
-  security baseline calls for are not set yet.
+- Argo CD is rendered without Dex and with its admin account off, and the
+  plan adds SSO settings, a locked default project and default-deny network
+  policies. The other charts are still rendered with near-default values.
 - The rendered manifests contain Helm hook resources. `apply` runs
   pre-install hooks first and waits for their jobs, and leaves out upgrade,
   delete and test hooks, which would be harmful to run as ordinary resources.
@@ -296,11 +297,37 @@ install:
 | Images pinned by digest and matching the lock | Yes | Yes, passes |
 | Restricted Pod Security on platform namespaces | Yes | Yes, passes |
 | Nothing exposed outside the cluster | Yes | Yes, passes |
-| Default-deny ingress and egress | No | Yes, fails |
-| Argo CD admin account disabled | No | Yes, fails |
-| Argo CD default project locked | No | Yes, fails |
-| SSO, deny-by-default RBAC | No | No |
+| Default-deny ingress and egress for Argo CD | Yes | Yes, passes |
+| Argo CD admin account disabled | Yes | Yes, passes |
+| Argo CD default project locked | Yes | Yes, passes |
+| SSO only, with one admin group and no access for anyone else | Yes | No |
 | Kyverno policies, secrets delivery, Git credentials, tenancy | No (platform stage is not installed) | No |
+
+### Argo CD network policy
+
+The `argocd` namespace denies all ingress and egress by default. On top of
+that:
+
+- The chart's own policies allow ingress to each component from the pods
+  that need it.
+- Every pod may resolve names (port 53, any destination, because where DNS
+  runs differs between distributions).
+- Pods may talk to each other inside the namespace.
+- Every pod except Redis may open TCP 443, 6443 and 22 to any destination:
+  the Kubernetes API, Git and registries, and the identity provider.
+
+The last rule is broader than it should be. A NetworkPolicy cannot name the
+Kubernetes API server or a Git host portably, so it allows the ports instead
+of the destinations. A cluster whose API server listens on another port needs
+a different rule.
+
+### Sign-in
+
+Argo CD signs users in directly against the identity provider named in the
+answers. The client secret is the one value the toolkit never handles: the
+config refers to a key in the `argocd-secret` Secret, and the user adds that
+key to the cluster after the install. Until then nobody can sign in, because
+the built-in admin account is off.
 
 ## Documents to write
 

@@ -78,12 +78,11 @@ func TestInstallBootstrapStage(t *testing.T) {
 		t.Errorf("second apply: exit %d: %s", code, stderr)
 	}
 
-	// Verify must report the live cluster truthfully: what this toolkit sets
-	// up passes, and the parts of the baseline it does not set up yet fail.
-	// When one of those gaps is closed, move its id to the passing list.
+	// Verify audits the live cluster. Every check must pass for the part of
+	// the platform that is installed.
 	code, stdout, stderr = run("verify", "--context", clusterContext, "--output", "json")
-	if code != cli.ExitInvalid {
-		t.Errorf("verify: exit %d, want %d while the baseline is not fully met: %s", code, cli.ExitInvalid, stderr)
+	if code != cli.ExitOK {
+		t.Errorf("verify: exit %d, want %d: %s", code, cli.ExitOK, stderr)
 	}
 	var report struct {
 		Compliant bool     `json:"compliant"`
@@ -101,9 +100,9 @@ func TestInstallBootstrapStage(t *testing.T) {
 		"images-match-lock":             "pass",
 		"pod-security":                  "pass",
 		"not-exposed":                   "pass",
-		"network-default-deny":          "fail",
-		"argocd-admin-disabled":         "fail",
-		"argocd-default-project-locked": "fail",
+		"network-default-deny":          "pass",
+		"argocd-admin-disabled":         "pass",
+		"argocd-default-project-locked": "pass",
 	}
 	for _, c := range report.Checks {
 		t.Logf("verify: %-7s %s: %s", c.Status, c.ID, c.Message)
@@ -115,7 +114,7 @@ func TestInstallBootstrapStage(t *testing.T) {
 	for id := range want {
 		t.Errorf("verify: check %s is missing", id)
 	}
-	if report.Compliant || strings.Join(report.Installed, ",") != "argo-cd" {
+	if !report.Compliant || strings.Join(report.Installed, ",") != "argo-cd" {
 		t.Errorf("verify: compliant = %v, installed = %v", report.Compliant, report.Installed)
 	}
 

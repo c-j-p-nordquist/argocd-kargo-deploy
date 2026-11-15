@@ -78,6 +78,9 @@ func questionSchema(question questions.Question) map[string]any {
 		if question.Format == questions.FormatHTTPSURL {
 			s["pattern"] = "^https://"
 		}
+		if pattern, ok := questions.Patterns[question.Format]; ok {
+			s["pattern"] = pattern
+		}
 		return s
 	}
 	options := make([]map[string]any, 0, len(question.Options))

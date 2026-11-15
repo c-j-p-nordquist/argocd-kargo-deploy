@@ -17,7 +17,7 @@ components:
       created: "2026-10-26T10:28:00Z"
     manifest:
       path: rendered/argo-cd.yaml
-      sha256: 1da54a6d94c08e80a3aaf6cfe7ab94466d66fef2673f32fd6995ebd913028feb
+      sha256: 739e9eb5aca609338e416f128f6d2644969ee7cb60d0c0babd718191c3184871
     images:
       - repository: ecr-public.aws.com/docker/library/redis
         tag: 8.6.4-alpine
@@ -25,13 +25,6 @@ components:
         verification:
           method: none
           reason: Docker Official Images are not signed with cosign. Pinned by digest only.
-      - repository: ghcr.io/dexidp/dex
-        tag: v2.46.1
-        digest: sha256:65b72ca0f4b0bf6d4ada84ec21da8851782563404ac7b8f926923d27ceced9ab
-        verification:
-          method: keyless
-          identity: https://github.com/dexidp/dex/.github/workflows/artifacts.yaml@refs/tags/v2.46.1
-          issuer: https://token.actions.githubusercontent.com
       - repository: quay.io/argoproj/argocd
         tag: v3.5.6
         digest: sha256:8e5cc5bb008df8a09dba439462e58c94c55b7735888d3ebde0c25fc05e4e5335

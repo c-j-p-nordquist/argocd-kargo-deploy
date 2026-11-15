@@ -48,6 +48,9 @@ var optionalComponents = map[string]struct{ field, value string }{
 // other answer is reported as not yet applied.
 var appliedFields = map[string]bool{
 	"components.argoRollouts": true,
+	"identity.oidc.issuer":    true,
+	"identity.oidc.clientId":  true,
+	"identity.adminGroup":     true,
 }
 
 // Plan is everything an installation would apply.
@@ -114,6 +117,16 @@ func Build(answers platform.Result, lock components.Lock) (Plan, error) {
 		data, err := components.Rendered(c)
 		if err != nil {
 			return Plan{}, err
+		}
+		if c.Name == bootstrapComponent {
+			if data, err = configureArgoCD(data, answers.Answers); err != nil {
+				return Plan{}, err
+			}
+			policies, err := argoCDPolicies(c)
+			if err != nil {
+				return Plan{}, err
+			}
+			p.Files = append(p.Files, newFile(stage+"/10-argo-cd-policies.yaml", policies))
 		}
 		if err := checkImages(c, data); err != nil {
 			return Plan{}, err

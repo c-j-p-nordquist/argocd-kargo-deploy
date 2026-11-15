@@ -229,7 +229,9 @@ var kinds = []string{
 	"Namespace", "CustomResourceDefinition",
 	"NetworkPolicy", "ServiceAccount", "Secret", "ConfigMap",
 	"ClusterRole", "ClusterRoleBinding", "Role", "RoleBinding",
-	"Service", "Job", "Deployment", "StatefulSet",
+	// Argo CD creates a wide-open default project if none exists when it
+	// starts, so projects go in before the workloads.
+	"Service", "AppProject", "Job", "Deployment", "StatefulSet",
 }
 
 func kindOrder(kind string) int {

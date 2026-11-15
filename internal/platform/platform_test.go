@@ -16,6 +16,8 @@ access:
 identity:
   oidc:
     issuer: https://accounts.example.com
+    clientId: argocd
+  adminGroup: Platform Admins
 git:
   host: github
   credential: github-app
@@ -86,6 +88,10 @@ func TestProblems(t *testing.T) {
 		{"misspelled nested field", "  production: pull-request", "  production: pull-request\n  prodution: automatic", "promotion.prodution", CodeUnknownField},
 		{"issuer is not https", "https://accounts.example.com", "http://accounts.example.com", "identity.oidc.issuer", CodeInvalidValue},
 		{"issuer is empty", "https://accounts.example.com", `""`, "identity.oidc.issuer", CodeMissingAnswer},
+		{"client id with a space", "clientId: argocd", "clientId: argo cd", "identity.oidc.clientId", CodeInvalidValue},
+		{"group with a comma", "adminGroup: Platform Admins", `adminGroup: "admins, role:admin"`, "identity.adminGroup", CodeInvalidValue},
+		{"group with a line break", "adminGroup: Platform Admins", `adminGroup: "admins\ng, everyone, role:admin"`, "identity.adminGroup", CodeInvalidValue},
+		{"group with a trailing space", "adminGroup: Platform Admins", `adminGroup: "admins "`, "identity.adminGroup", CodeInvalidValue},
 		{"weakening option without acknowledgement", "backend: vault", "backend: in-cluster", "secrets.backend", CodeMissingAcknowledgement},
 		{"github app on another host", "host: github", "host: gitlab", "git.credential", CodeIncompatibleAnswers},
 	}

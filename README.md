@@ -35,14 +35,17 @@ binary. The plan is incomplete for now: most answers do not change the
 manifests yet, and the plan says which.
 
 `akd apply` installs the plan's bootstrap stage, Argo CD, in a namespace that
-enforces the restricted Pod Security Standard. It only accepts the hash of a
+enforces the restricted Pod Security Standard and denies all network traffic
+by default. Sign-in is through your identity provider only, the built-in admin
+account is off, and the default project allows nothing. It only accepts the hash of a
 plan that has not changed since it was made, and it requires the cluster's
 context to be named.
 
 `akd verify` audits the live cluster against the security baseline and maps
 each check to the guidance it comes from. It reports what is true, including
-the parts of the baseline this toolkit does not set up yet: after a bootstrap
-install today, three of six checks pass.
+any part of the baseline the cluster does not meet. After a bootstrap install
+all six checks pass; they cover Argo CD, which is all that is installed so
+far.
 
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security

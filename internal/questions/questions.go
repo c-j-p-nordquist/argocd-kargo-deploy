@@ -18,7 +18,19 @@ const (
 const (
 	// FormatHTTPSURL is an absolute https:// URL.
 	FormatHTTPSURL = "https-url"
+	// FormatIdentifier is a name without spaces, such as an OIDC client ID.
+	FormatIdentifier = "identifier"
+	// FormatGroupName is the name of a group as an identity provider reports
+	// it. It may contain spaces but no commas or line breaks, because it is
+	// written into an access policy.
+	FormatGroupName = "group-name"
 )
+
+// Patterns holds the regular expression for each format that has one.
+var Patterns = map[string]string{
+	FormatIdentifier: `^[A-Za-z0-9._@:/-]{1,200}$`,
+	FormatGroupName:  `^[A-Za-z0-9._@:/-]([A-Za-z0-9._@:/ -]{0,198}[A-Za-z0-9._@:/-])?$`,
+}
 
 // Questionnaire is the full set of questions for one installation.
 type Questionnaire struct {
@@ -92,7 +104,23 @@ func Default() Questionnaire {
 				Type:   TypeText,
 				Format: FormatHTTPSURL,
 				Prompt: "What is the OIDC issuer URL of your identity provider?",
-				Help:   "Sign-in is SSO only. The client secret is supplied as a reference, never as a value.",
+				Help:   "Sign-in is SSO only. The built-in admin account is disabled.",
+			},
+			{
+				ID:     "identity-oidc-client-id",
+				Field:  "identity.oidc.clientId",
+				Type:   TypeText,
+				Format: FormatIdentifier,
+				Prompt: "What is the client ID of the OIDC application registered for Argo CD?",
+				Help:   "Register the redirect URI https://localhost:8080/auth/callback with it. The client secret is never asked for here: after the install you add it to the cluster yourself.",
+			},
+			{
+				ID:     "identity-admin-group",
+				Field:  "identity.adminGroup",
+				Type:   TypeText,
+				Format: FormatGroupName,
+				Prompt: "Which group in your identity provider should administer Argo CD?",
+				Help:   "Members of this group get the admin role. Everyone else gets no access until a policy grants it.",
 			},
 			{
 				ID:     "git-host",

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -374,6 +375,13 @@ func (v *validator) checkText(question questions.Question, answer string) {
 			v.add(question.Field, CodeInvalidValue,
 				fmt.Sprintf("%q is not an https:// URL", answer),
 				"use the full issuer URL, for example https://accounts.example.com")
+		}
+	}
+	if pattern, ok := questions.Patterns[question.Format]; ok {
+		if !regexp.MustCompile(pattern).MatchString(answer) {
+			v.add(question.Field, CodeInvalidValue,
+				fmt.Sprintf("%q is not a valid %s", answer, question.Format),
+				"allowed: letters, digits and . _ @ : / - (a group name may also contain spaces inside it)")
 		}
 	}
 }

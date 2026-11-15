@@ -61,6 +61,7 @@ func TestBuildFromExampleAnswers(t *testing.T) {
 
 	want := []string{
 		"bootstrap/00-namespaces.yaml",
+		"bootstrap/10-argo-cd-policies.yaml",
 		"bootstrap/argo-cd.yaml",
 		"platform/00-namespaces.yaml",
 		"platform/cert-manager.yaml",
@@ -261,5 +262,105 @@ func appendTo(t *testing.T, path, text string) {
 	defer f.Close()
 	if _, err := f.WriteString(text); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func fileData(t *testing.T, p Plan, path string) string {
+	t.Helper()
+	for _, f := range p.Files {
+		if f.Path == path {
+			return string(f.Data())
+		}
+	}
+	t.Fatalf("no file %s in the plan", path)
+	return ""
+}
+
+func TestArgoCDIsConfiguredFromTheIdentityAnswers(t *testing.T) {
+	manifests := fileData(t, build(t, nil), "bootstrap/argo-cd.yaml")
+	for _, want := range []string{
+		`admin.enabled: "false"`,
+		"url: " + ArgoCDURL,
+		"issuer: https://accounts.example.com",
+		"clientID: argocd",
+		"clientSecret: $oidc.clientSecret",
+		"g, platform-admins, role:admin",
+		`policy.default: ""`,
+	} {
+		if !strings.Contains(manifests, want) {
+			t.Errorf("Argo CD manifests do not contain %q", want)
+		}
+	}
+
+	other := fileData(t, build(t, func(doc string) string {
+		return strings.Replace(doc, "adminGroup: platform-admins", "adminGroup: sre", 1)
+	}), "bootstrap/argo-cd.yaml")
+	if !strings.Contains(other, "g, sre, role:admin") || strings.Contains(other, "platform-admins") {
+		t.Error("the admin group answer did not change the access policy")
+	}
+}
+
+func TestConfiguringLeavesOtherDocumentsUntouched(t *testing.T) {
+	lock, err := components.LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := components.Rendered(lock.Components[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured := fileData(t, build(t, nil), "bootstrap/argo-cd.yaml")
+
+	before := strings.Split(string(original), "\n---\n")
+	after := strings.Split(configured, "\n---\n")
+	if len(before) != len(after) {
+		t.Fatalf("document count changed from %d to %d", len(before), len(after))
+	}
+	changed := 0
+	for i := range before {
+		if before[i] != after[i] {
+			changed++
+			if !strings.Contains(before[i], "kind: ConfigMap") {
+				t.Errorf("a document that is not a ConfigMap changed:\n%.200s", before[i])
+			}
+		}
+	}
+	if changed != 2 {
+		t.Errorf("%d documents changed, want exactly the two ConfigMaps", changed)
+	}
+}
+
+func TestSetConfigMapData(t *testing.T) {
+	const manifests = "kind: Service\nmetadata:\n  name: cm\n---\nkind: ConfigMap\nmetadata:\n  name: cm\ndata:\n  keep: \"1\"\n---\nkind: ConfigMap\nmetadata:\n  name: other\n"
+	got, err := setConfigMapData([]byte(manifests), "cm", map[string]string{"added": "a: b\n# not a comment"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`keep: "1"`, "added: |", "kind: Service\nmetadata:\n  name: cm\n---", "name: other\n"} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("result does not contain %q:\n%s", want, got)
+		}
+	}
+	if _, err := setConfigMapData([]byte(manifests), "missing", nil); err == nil {
+		t.Error("no error for a ConfigMap that is not there")
+	}
+}
+
+func TestArgoCDPolicies(t *testing.T) {
+	policies := fileData(t, build(t, nil), "bootstrap/10-argo-cd-policies.yaml")
+	if strings.Contains(policies, "NAMESPACE") {
+		t.Error("a namespace placeholder was left in")
+	}
+	for _, want := range []string{
+		"name: default-deny", "name: allow-dns", "name: allow-within-namespace", "name: allow-api-and-git",
+		"kind: AppProject", "sourceRepos: []", "destinations: []", "namespace: argocd",
+	} {
+		if !strings.Contains(policies, want) {
+			t.Errorf("policies do not contain %q", want)
+		}
+	}
+	// Redis must not be given a way out of the namespace.
+	if !strings.Contains(policies, "operator: NotIn") || !strings.Contains(policies, "- argocd-redis") {
+		t.Error("the external egress policy does not exclude redis")
 	}
 }

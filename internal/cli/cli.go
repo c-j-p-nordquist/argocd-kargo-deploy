@@ -483,6 +483,13 @@ func runPlan(e *env) error {
 	return nil
 }
 
+// applyNextSteps are shown after an install. The client secret is the one
+// value this tool never handles, so the user puts it in the cluster.
+var applyNextSteps = []string{
+	"Sign-in does not work until the OIDC client secret is in the cluster. Add it yourself, without sharing it with an agent: kubectl -n argocd patch secret argocd-secret --type merge -p '{\"stringData\":{\"oidc.clientSecret\":\"<your client secret>\"}}'",
+	"Reach Argo CD with: kubectl -n argocd port-forward svc/argocd-server 8080:443, then open " + plan.ArgoCDURL,
+}
+
 func applyFlags(fs *flag.FlagSet, e *env) {
 	fs.StringVar(&e.planHash, "plan", "", "`hash` of the plan to apply, as printed by plan (required)")
 	fs.StringVar(&e.planDir, "dir", "plan", "`directory` the plan was written to")
@@ -570,7 +577,9 @@ func runApply(e *env) error {
 			// NotApplied lists the platform-stage components, which this
 			// command does not install.
 			NotApplied []string `json:"notApplied"`
-		}{client.Context, p.Hash, res, notApplied})
+			// NextSteps are things only the user can do.
+			NextSteps []string `json:"nextSteps"`
+		}{client.Context, p.Hash, res, notApplied, applyNextSteps})
 	}
 
 	total := 0
@@ -583,6 +592,10 @@ func runApply(e *env) error {
 	}
 	if len(notApplied) > 0 {
 		fmt.Fprintf(e.stdout, "\nNot installed by this command: %s. Argo CD will sync these from Git once that is set up.\n", strings.Join(notApplied, ", "))
+	}
+	fmt.Fprintln(e.stdout, "\nNext steps, which only you can do:")
+	for i, step := range applyNextSteps {
+		fmt.Fprintf(e.stdout, "  %d. %s\n", i+1, step)
 	}
 	return nil
 }
