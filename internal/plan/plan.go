@@ -81,6 +81,12 @@ type File struct {
 	data []byte
 }
 
+// Data returns the file's content.
+func (f File) Data() []byte { return f.data }
+
+// Incomplete reports whether some answers are not reflected in the plan.
+func (p Plan) Incomplete() bool { return len(p.NotYetApplied) > 0 }
+
 // Build assembles the plan for a set of validated answers.
 func Build(answers platform.Result, lock components.Lock) (Plan, error) {
 	if !answers.Valid {

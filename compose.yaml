@@ -41,7 +41,7 @@ services:
   # publishes no ports, and holds nothing worth keeping.
   #   docker compose --profile e2e up -d --wait k3s
   #   docker compose --profile e2e run --rm e2e
-  #   docker compose --profile e2e rm -sfv k3s e2e
+  #   docker compose --profile e2e rm -sfv k3s e2e e2e-install
   k3s:
     image: rancher/k3s:v1.37.2-k3s1@sha256:21ea6e0fac4e3930c2ce8aa40ddd41a8b18cb3e9a0222c030dc005e7e88c4332
     profiles: ["e2e"]
@@ -76,6 +76,27 @@ services:
     volumes:
       - e2e-kubeconfig:/kube:ro
     command: ["preflight", "--kubeconfig", "/kube/kubeconfig.yaml"]
+
+  # Installs the bootstrap stage on the throwaway cluster and checks the
+  # result. Runs from source so the test can drive plan and apply together.
+  #   docker compose --profile e2e run --rm e2e-install
+  e2e-install:
+    build:
+      context: .
+      target: dev
+    profiles: ["e2e"]
+    network_mode: "service:k3s"
+    depends_on:
+      k3s:
+        condition: service_healthy
+    environment:
+      KUBECONFIG: /kube/kubeconfig.yaml
+    volumes:
+      - .:/app
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+      - e2e-kubeconfig:/kube:ro
+    command: ["go", "test", "-tags", "e2e", "-count=1", "-timeout", "20m", "-v", "./e2e/"]
 
 volumes:
   go-mod:

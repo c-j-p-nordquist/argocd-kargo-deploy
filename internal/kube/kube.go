@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -17,6 +18,9 @@ type Client struct {
 	kubernetes.Interface
 	// Context is the name of the kubeconfig context in use.
 	Context string
+	// Config is the connection the client was built from, for building other
+	// kinds of client against the same cluster.
+	Config *rest.Config
 }
 
 // Connect loads the kubeconfig the same way kubectl does: the explicit path
@@ -47,5 +51,5 @@ func Connect(kubeconfig, contextName string) (*Client, error) {
 			contextName = raw.CurrentContext
 		}
 	}
-	return &Client{Interface: clientset, Context: contextName}, nil
+	return &Client{Interface: clientset, Context: contextName, Config: cfg}, nil
 }

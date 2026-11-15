@@ -74,7 +74,11 @@ approving the decisions that matter.
    `platform` (everything Argo CD then syncs).
 5. `apply` only accepts a plan hash. It re-reads the plan directory and
    refuses it if any file was changed, added or removed since the hash was
-   printed. What the user approved is exactly what is applied.
+   printed. What the user approved is exactly what is applied. It requires
+   the cluster's context to be named, refuses an incomplete plan unless told
+   otherwise, and uses server-side apply without forcing, so it is safe to
+   repeat and never takes over a resource something else manages. It
+   installs the bootstrap stage only.
 6. `verify` audits the live cluster against the baseline.
 
 ### Questionnaire topics
@@ -160,9 +164,11 @@ Not done yet:
 - Charts are pinned by digest but their signatures are not checked.
 - Charts are rendered with near-default values. The hardened values that the
   security baseline calls for are not set yet.
-- The rendered manifests still contain Helm hook resources (Argo CD and
-  Kyverno have them). `apply` must decide how each hook is run or left out
-  before anything is applied.
+- The rendered manifests contain Helm hook resources. `apply` runs
+  pre-install hooks first and waits for their jobs, and leaves out upgrade,
+  delete and test hooks, which would be harmful to run as ordinary resources.
+  Only Argo CD's hooks have been exercised. Kyverno's upgrade and delete
+  hooks still need a decision for when Argo CD syncs the platform stage.
 
 ### Verification points
 

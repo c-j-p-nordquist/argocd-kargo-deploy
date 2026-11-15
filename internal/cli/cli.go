@@ -14,8 +14,14 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
+
+	"k8s.io/client-go/discovery/cached/memory"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/restmapper"
 
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/components"
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/apply"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/kube"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/plan"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
@@ -67,6 +73,11 @@ type env struct {
 	kubeContext string
 	// out is the directory a plan is written to.
 	out string
+	// The rest are for apply.
+	planHash        string
+	planDir         string
+	allowIncomplete bool
+	timeout         time.Duration
 }
 
 // exitCode lets a command finish normally with a non-zero exit code.
@@ -92,7 +103,7 @@ func commands() []command {
 		{name: "schema", summary: "Print the JSON Schema for platform.yaml", run: runSchema},
 		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
 		{name: "plan", summary: "Render what would be applied and print its hash", flags: planFlags, run: runPlan},
-		{name: "apply", summary: "Apply a previously approved plan", mutates: true, run: notImplemented("apply")},
+		{name: "apply", summary: "Apply a previously approved plan", mutates: true, flags: applyFlags, run: runApply},
 		{name: "verify", summary: "Audit the cluster against the security baseline", run: notImplemented("verify")},
 		{name: "version", summary: "Print the version", run: runVersion},
 	}
@@ -477,5 +488,109 @@ func runPlan(e *env) error {
 		fmt.Fprintf(e.stdout, "\nThis plan is incomplete. These answers do not change the manifests yet:\n  %s\n", strings.Join(p.NotYetApplied, "\n  "))
 	}
 	fmt.Fprintf(e.stdout, "\nPlan hash: %s\n", p.Hash)
+	return nil
+}
+
+func applyFlags(fs *flag.FlagSet, e *env) {
+	fs.StringVar(&e.planHash, "plan", "", "`hash` of the plan to apply, as printed by plan (required)")
+	fs.StringVar(&e.planDir, "dir", "plan", "`directory` the plan was written to")
+	fs.StringVar(&e.kubeconfig, "kubeconfig", "", "`path` to the kubeconfig (default: $KUBECONFIG, then ~/.kube/config)")
+	fs.StringVar(&e.kubeContext, "context", "", "kubeconfig context `name` of the cluster to install on (required)")
+	fs.BoolVar(&e.allowIncomplete, "allow-incomplete", false, "apply a plan that does not reflect every answer; for test clusters only")
+	fs.DurationVar(&e.timeout, "timeout", 5*time.Minute, "how long to wait for each step, as a `duration` such as 5m")
+}
+
+func runApply(e *env) error {
+	if e.planHash == "" {
+		return usageError("--plan is required: pass the hash that plan printed", "apply")
+	}
+	// The current context is never used implicitly. Naming the cluster is
+	// what stops a plan from being applied to the wrong one.
+	if e.kubeContext == "" {
+		return usageError("--context is required: name the kubeconfig context of the cluster to install on", "apply")
+	}
+
+	p, err := plan.Read(e.planDir)
+	if err != nil {
+		code := "plan_changed"
+		if errors.Is(err, os.ErrNotExist) {
+			code = "plan_not_found"
+		}
+		return &Error{
+			Code:    code,
+			Message: err.Error(),
+			Hint:    fmt.Sprintf("run `%s plan` again and have the new hash approved", Name),
+			exit:    ExitInvalid,
+		}
+	}
+	if p.Hash != e.planHash {
+		return &Error{
+			Code:    "plan_mismatch",
+			Message: fmt.Sprintf("the plan in %s has hash %s, not the hash that was passed", e.planDir, p.Hash),
+			Hint:    "the plan was regenerated after it was approved; review and approve the current one",
+			exit:    ExitInvalid,
+		}
+	}
+	if p.Incomplete() && !e.allowIncomplete {
+		return &Error{
+			Code:    "plan_incomplete",
+			Message: fmt.Sprintf("the plan does not reflect these answers yet: %s", strings.Join(p.NotYetApplied, ", ")),
+			Hint:    "applying it would install a platform that differs from what was asked for; --allow-incomplete overrides this for test clusters",
+			exit:    ExitInvalid,
+		}
+	}
+
+	client, err := kube.Connect(e.kubeconfig, e.kubeContext)
+	if err != nil {
+		return &Error{Code: "kubeconfig_invalid", Message: "could not load the kubeconfig: " + err.Error(), exit: ExitFailure}
+	}
+	dyn, err := dynamic.NewForConfig(client.Config)
+	if err != nil {
+		return err
+	}
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(client.Discovery()))
+
+	opts := apply.Options{Timeout: e.timeout}
+	if e.format != "json" {
+		opts.Progress = e.stderr
+	}
+	res, err := apply.Bootstrap(context.Background(), dyn, mapper, p, opts)
+	if err != nil {
+		return &Error{
+			Code:    "apply_failed",
+			Message: err.Error(),
+			Hint:    "the install is partial; fix the cause and run the same apply again, which is safe to repeat",
+			exit:    ExitFailure,
+		}
+	}
+
+	notApplied := []string{}
+	for _, c := range p.Components {
+		if c.Stage != plan.StageBootstrap {
+			notApplied = append(notApplied, c.Name)
+		}
+	}
+	if e.format == "json" {
+		return writeJSON(e.stdout, struct {
+			Context string `json:"context"`
+			Hash    string `json:"hash"`
+			apply.Result
+			// NotApplied lists the platform-stage components, which this
+			// command does not install.
+			NotApplied []string `json:"notApplied"`
+		}{client.Context, p.Hash, res, notApplied})
+	}
+
+	total := 0
+	for _, n := range res.Applied {
+		total += n
+	}
+	fmt.Fprintf(e.stdout, "Applied %d resources to context %q. %d workloads are available.\n", total, client.Context, len(res.Workloads))
+	for _, s := range res.Skipped {
+		fmt.Fprintf(e.stdout, "  skipped %s %s: %s\n", s.Kind, s.Name, s.Reason)
+	}
+	if len(notApplied) > 0 {
+		fmt.Fprintf(e.stdout, "\nNot installed by this command: %s. Argo CD will sync these from Git once that is set up.\n", strings.Join(notApplied, ", "))
+	}
 	return nil
 }

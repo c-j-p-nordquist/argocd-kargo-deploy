@@ -42,9 +42,15 @@ jobs:
           docker compose --profile e2e up -d --wait k3s
           docker compose --profile e2e run --rm e2e preflight --kubeconfig /kube/kubeconfig.yaml --output json
 
+      - name: End-to-end install of the bootstrap stage
+        run: docker compose --profile e2e run --rm e2e-install
+
       - name: Show cluster logs on failure
         if: failure()
-        run: docker compose --profile e2e logs --tail 100 k3s
+        run: |
+          docker compose --profile e2e exec -T k3s kubectl get pods --all-namespaces || true
+          docker compose --profile e2e exec -T k3s kubectl get events --namespace argocd --sort-by .lastTimestamp || true
+          docker compose --profile e2e logs --tail 100 k3s
 
   # Re-resolves every pinned chart and image and re-verifies every signature.
   # Fails if components.lock is stale or an upstream tag has moved.

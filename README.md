@@ -5,8 +5,9 @@ promotion) on any Kubernetes cluster you have a kubeconfig for. Security comes
 first, and the installer is built to be driven by you together with your coding
 agent.
 
-**Status: early scaffold.** The design is written down and the CLI skeleton
-exists, but it cannot install anything yet. `akd` is a placeholder name.
+**Status: early.** It can install Argo CD on a cluster, pinned and verified,
+but not yet the rest of the platform, and most installation answers are not
+applied yet. `akd` is a placeholder name.
 
 ## What works today
 
@@ -32,6 +33,11 @@ verified against its upstream signer when the lock was generated.
 and a content hash. It works offline from the manifests embedded in the
 binary. The plan is incomplete for now: most answers do not change the
 manifests yet, and the plan says which.
+
+`akd apply` installs the plan's bootstrap stage, Argo CD, in a namespace that
+enforces the restricted Pod Security Standard. It only accepts the hash of a
+plan that has not changed since it was made, and it requires the cluster's
+context to be named.
 
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security

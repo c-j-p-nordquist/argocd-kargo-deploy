@@ -8,9 +8,10 @@ helping a user install the platform and when changing the code.
 
 ## Installing the platform with a user
 
-The intended flow is below. `preflight`, `questions`, `validate`, `plan`,
-`schema`, `components` and `version` are implemented so far; the other commands exit with code 3 and the
-error code `not_implemented`.
+The intended flow is below. Everything except `verify` is implemented;
+`verify` exits with code 3 and the error code `not_implemented`. `apply`
+installs the bootstrap stage only (Argo CD). The platform stage is not
+installed by anything yet.
 
 | Step | Command | Changes the cluster | Implemented |
 |---|---|---|---|
@@ -18,7 +19,7 @@ error code `not_implemented`.
 | 2 | `akd questions` | No | Yes |
 | 3 | `akd validate` | No | Yes |
 | 4 | `akd plan` | No | Yes |
-| 5 | `akd apply --plan <hash>` | Yes | No |
+| 5 | `akd apply --plan <hash>` | Yes | Bootstrap stage only |
 | 6 | `akd verify` | No | No |
 
 ### Inspecting the cluster
@@ -85,6 +86,29 @@ the installation would apply into the `plan` directory and prints the plan's
   `platform.yaml` and run `plan` again.
 - The same answers and the same build of the CLI always give the same hash.
 
+### Applying a plan
+
+`akd apply --plan <hash> --dir plan --context <name> --output json` installs
+the plan's bootstrap stage: the `argocd` namespace and Argo CD. This is the
+only command that changes the cluster.
+
+- Run it only after the user has seen the plan and approved its hash, in this
+  conversation. Pass the hash they approved, not one you read from
+  `plan.json` afterwards.
+- `--context` is required and is never taken from the kubeconfig's current
+  context. Use the context the user confirmed after `preflight`.
+- An incomplete plan is refused with `plan_incomplete`. `--allow-incomplete`
+  overrides that. Use it only when the user says the cluster is a test
+  cluster and accepts that the install will not match their answers.
+- `plan_mismatch` and `plan_changed` mean the plan on disk is not the one that
+  was approved. Do not work around them: make a new plan and ask again.
+- Apply is safe to repeat. If it fails part-way, fix the cause and run the
+  same command again.
+- It never takes over a resource that something else manages. That shows up
+  as `apply_failed` naming the resource.
+- `notApplied` in the result lists the platform components, which this
+  command does not install.
+
 ### Showing the user what they will trust
 
 `akd components --output json` lists every third-party component the platform
@@ -145,7 +169,9 @@ Development runs in containers. Do not install Go on the host.
 ### End-to-end test
 
 The `e2e` profile starts a throwaway single-node k3s cluster in a privileged
-container and runs the release image's `preflight` against it.
+container. `e2e` runs the release image's `preflight` against it, and
+`e2e-install` plans and applies the bootstrap stage and checks that Argo CD
+becomes available.
 
 ```bash
 docker compose --profile e2e up -d --wait k3s
@@ -156,8 +182,15 @@ docker compose --profile e2e run --rm --build e2e
 ```
 
 ```bash
-docker compose --profile e2e rm -sfv k3s e2e
+docker compose --profile e2e run --rm --build e2e-install
 ```
+
+```bash
+docker compose --profile e2e rm -sfv k3s e2e e2e-install
+```
+
+The install test has the `e2e` build tag and changes whatever cluster
+`KUBECONFIG` points at. Never run it outside this profile.
 
 ### Running against a real cluster
 

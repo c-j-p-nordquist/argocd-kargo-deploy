@@ -66,7 +66,7 @@ func TestUnexpectedArgument(t *testing.T) {
 }
 
 func TestNotImplementedCommandsReportJSONError(t *testing.T) {
-	for _, name := range []string{"apply", "verify"} {
+	for _, name := range []string{"verify"} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout, stderr := run(name, "--output", "json")
 			if code != ExitNotImplemented {
@@ -286,5 +286,40 @@ func TestPlanRefusesInvalidAnswers(t *testing.T) {
 	}
 	if stdout != "" || !strings.Contains(stderr, `"answers_invalid"`) {
 		t.Errorf("stdout = %q, stderr = %s", stdout, stderr)
+	}
+}
+
+func TestApplyRefusals(t *testing.T) {
+	dir := t.TempDir()
+	if code, _, stderr := run("plan", "--file", examplePath, "--out", dir); code != ExitOK {
+		t.Fatalf("plan failed: %s", stderr)
+	}
+	var planned struct {
+		Hash string `json:"hash"`
+	}
+	_, stdout, _ := run("plan", "--file", examplePath, "--out", dir, "--output", "json")
+	if err := json.Unmarshal([]byte(stdout), &planned); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		exit int
+		code string
+	}{
+		{"no hash", []string{"--dir", dir, "--context", "c"}, ExitUsage, "usage"},
+		{"no context", []string{"--dir", dir, "--plan", planned.Hash}, ExitUsage, "usage"},
+		{"wrong hash", []string{"--dir", dir, "--context", "c", "--plan", "sha256:0000"}, ExitInvalid, "plan_mismatch"},
+		{"no plan in the directory", []string{"--dir", t.TempDir(), "--context", "c", "--plan", planned.Hash}, ExitInvalid, "plan_not_found"},
+		{"incomplete plan", []string{"--dir", dir, "--context", "c", "--plan", planned.Hash}, ExitInvalid, "plan_incomplete"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, stdout, stderr := run(append([]string{"apply", "--output", "json"}, tt.args...)...)
+			if code != tt.exit || !strings.Contains(stderr, `"`+tt.code+`"`) || stdout != "" {
+				t.Errorf("exit = %d, want %d with code %s\nstdout: %s\nstderr: %s", code, tt.exit, tt.code, stdout, stderr)
+			}
+		})
 	}
 }
