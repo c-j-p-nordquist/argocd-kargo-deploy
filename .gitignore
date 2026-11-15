@@ -1,0 +1,8 @@
+.env
+bin/
+dist/
+compose.override.yaml
+
+# Answers file for a real installation. It holds references, not secret
+# values, but it describes a specific cluster and does not belong in this repo.
+/platform.yaml

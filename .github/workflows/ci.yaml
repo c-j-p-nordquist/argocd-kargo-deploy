@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned by commit. Update the SHA and the version comment together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check formatting
+        run: docker compose run --rm dev sh -c 'test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }'
+
+      - name: Vet
+        run: docker compose run --rm dev go vet ./...
+
+      - name: Test
+        run: docker compose run --rm dev go test ./...
+
+      - name: Build release image
+        run: docker compose --profile cli build akd
+
+      - name: Smoke test release image
+        run: docker compose --profile cli run --rm akd questions --output json

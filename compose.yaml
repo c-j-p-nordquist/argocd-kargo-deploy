@@ -1,0 +1,29 @@
+services:
+  # Development toolchain: tests, vet, and running the CLI from source.
+  #   docker compose run --rm dev                      (runs the tests)
+  #   docker compose run --rm dev go run ./cmd/akd questions
+  dev:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/app
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+
+  # The release image: static binary on distroless, non-root.
+  #   docker compose run --rm akd questions --output json
+  akd:
+    build:
+      context: .
+      target: prod
+      args:
+        VERSION: ${VERSION:-dev}
+    profiles: ["cli"]
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  go-mod:
+  go-build:
