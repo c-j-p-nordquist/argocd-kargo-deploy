@@ -23,6 +23,11 @@ whether NetworkPolicy is enforced, and whether any platform component is
 already there. See the [agent guide](AGENTS.md) for how to run it against a
 real cluster.
 
+`akd components` lists the third-party components the platform will install.
+Every chart and image is pinned by digest in
+[components/components.lock](components/components.lock), and each image was
+verified against its upstream signer when the lock was generated.
+
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security
 baseline without a written acknowledgement, and it lists the acknowledged

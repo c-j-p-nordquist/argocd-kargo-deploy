@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/components"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/kube"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/preflight"
@@ -84,6 +85,7 @@ func commands() []command {
 	return []command{
 		{name: "preflight", summary: "Inspect the cluster and report what it supports", flags: clusterFlags, run: runPreflight},
 		{name: "questions", summary: "Print the installation questionnaire", run: runQuestions},
+		{name: "components", summary: "List the pinned third-party components and how each is verified", run: runComponents},
 		{name: "schema", summary: "Print the JSON Schema for platform.yaml", run: runSchema},
 		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
 		{name: "plan", summary: "Render what would be applied and print its hash", run: notImplemented("plan")},
@@ -379,4 +381,37 @@ func printPreflight(w io.Writer, r preflight.Report) {
 	} else {
 		fmt.Fprintln(w, "\nAt least one check failed. Fix it before continuing.")
 	}
+}
+
+func runComponents(e *env) error {
+	lock, err := components.LoadLock()
+	if err != nil {
+		return err
+	}
+	if e.format == "json" {
+		return writeJSON(e.stdout, lock)
+	}
+
+	images, unverified := 0, 0
+	for i, c := range lock.Components {
+		if i > 0 {
+			fmt.Fprintln(e.stdout)
+		}
+		kind := "required"
+		if c.Optional {
+			kind = "optional"
+		}
+		fmt.Fprintf(e.stdout, "%s  chart %s  (%s)\n  %s\n", c.Name, c.Chart.Version, kind, c.Purpose)
+		for _, img := range c.Images {
+			images++
+			if img.Verification.Method == components.MethodNone {
+				unverified++
+			}
+			fmt.Fprintf(e.stdout, "    %-18s %s:%s\n", img.Verification.Method, img.Repository, img.Tag)
+		}
+	}
+	fmt.Fprintf(e.stdout, "\n%d components, %d images, all pinned by digest. %d verified, %d pinned by digest only.\n",
+		len(lock.Components), images, images-unverified, unverified)
+	fmt.Fprintln(e.stdout, "Charts are pinned by digest but not signature-checked.")
+	return nil
 }

@@ -119,22 +119,43 @@ cluster. The toolkit treats each one as a trust decision.
 
 ### Lock file
 
-`components.lock` records, for every upstream component:
+`components/components.yaml` lists each component, its chart version, and a
+rule for how every image it needs is verified. `tools/lockgen` turns that into
+`components/components.lock`, which records for every component:
 
-- chart version and chart digest
-- every container image by digest
-- the expected signer identity and issuer, where upstream signs releases
-- whether provenance attestations are available
+- the chart version, digest and publication time
+- every container image the chart renders, by digest
+- how each image was verified, with the exact signer identity
 
-Releases of the toolkit ship the fully rendered manifests for that lock file,
-so an upgrade is a reviewable diff and install does not depend on fetching
-charts at run time.
+The lock is embedded in the binary, so a given build of the CLI can only
+install the artifacts it was released with.
+
+Upstreams sign in different ways, and the lock records which applies:
+
+| Method | What is verified | Used by |
+|---|---|---|
+| `keyless` | A cosign signature from a named CI workflow, recorded in a public transparency log | Argo CD, Dex, External Secrets Operator, Kargo, Argo Rollouts |
+| `keyless-provenance` | A signed SLSA provenance attestation tied to the project's repository | Kyverno |
+| `key` | A cosign signature from the project's long-lived key, which is pinned by hash. Not in a transparency log | cert-manager |
+| `none` | Nothing; pinned by digest only, with the reason recorded | Redis |
+
+Generation fails if a chart renders an image that no rule covers, so nothing
+is trusted by accident.
+
+Not done yet:
+
+- Charts are pinned by digest but their signatures are not checked.
+- Images are discovered by rendering each chart with near-default values.
+  When `plan` renders with the user's answers, it must use the same values
+  the lock was generated from, or generation must cover every combination.
+- Releases do not yet ship fully rendered manifests. The intent is that an
+  upgrade is a reviewable diff and install does not fetch charts at run time.
 
 ### Verification points
 
 | When | What is checked | By |
 |---|---|---|
-| Toolkit CI | Signatures, provenance, vulnerability scan, rendered-manifest diff | CI pipeline |
+| Toolkit CI | Digests and signatures of everything in the lock (vulnerability scan and rendered-manifest diff are not built yet) | CI pipeline |
 | Before apply | Digests and signatures of everything in the plan | CLI |
 | At admission | Image signatures and digests in platform namespaces | Kyverno |
 | On demand | Running images match the lock file | `akd verify` |
@@ -147,10 +168,10 @@ only, and `verify` reports that gap instead of hiding it.
 
 ### Updates
 
-- A dependency bot opens pull requests that bump `components.lock`.
-- New upstream releases are held for a cooldown period before they are
-  eligible, so a freshly compromised release is more likely to be caught
-  upstream first.
+- A dependency bot opens pull requests that bump `components.yaml` (not set
+  up yet; bumps are manual for now).
+- A chart must be at least 14 days old before `lockgen` will lock it, so a
+  freshly compromised release is more likely to be caught upstream first.
 - CI re-runs all checks and posts the rendered diff, with new RBAC rules, CRDs
   and webhooks called out.
 - Platform upgrades are promoted through Kargo stages like any other change.
@@ -242,4 +263,5 @@ the CIS and NSA Kubernetes benchmarks.
 ## Open questions
 
 1. Name of the CLI.
-2. Length of the update cooldown.
+2. Whether 14 days is the right update cooldown. It is a first choice, not a
+   measured one.

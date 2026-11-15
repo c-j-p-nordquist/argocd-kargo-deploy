@@ -8,8 +8,8 @@ helping a user install the platform and when changing the code.
 
 ## Installing the platform with a user
 
-The intended flow is below. `preflight`, `questions`, `validate`, `schema` and
-`version` are implemented so far; the other commands exit with code 3 and the
+The intended flow is below. `preflight`, `questions`, `validate`, `schema`,
+`components` and `version` are implemented so far; the other commands exit with code 3 and the
 error code `not_implemented`.
 
 | Step | Command | Changes the cluster | Implemented |
@@ -68,6 +68,13 @@ Preflight is read-only. It does not create, change or delete anything.
 
 `akd validate` reads `platform.yaml` in the current directory. Use `--file` for
 another path, or `--file -` to read standard input.
+
+### Showing the user what they will trust
+
+`akd components --output json` lists every third-party component the platform
+installs: the chart and each image, pinned by digest, and how each image was
+verified. Show the user this list before they approve a plan. Point out any
+image whose verification `method` is `none`; its `reason` says why.
 
 ### Rules
 
@@ -147,6 +154,28 @@ docker compose run --rm -e GOOS=darwin -e GOARCH=arm64 dev go build -o bin/akd .
 ```
 
 Set `GOOS` and `GOARCH` for the host, then run `bin/akd preflight`.
+
+### Updating a component
+
+[components/components.yaml](components/components.yaml) is the input, edited
+by hand. `components/components.lock` is generated from it and embedded in the
+binary; never edit it directly.
+
+1. Change the component's `version` in `components.yaml`.
+2. Regenerate the lock. This resolves every chart and image to a digest and
+   verifies every image, and it refuses a chart younger than `cooldownDays`:
+
+   ```bash
+   docker compose --profile tools run --rm --build tools go run ./tools/lockgen
+   ```
+
+3. Review the diff of `components.lock`. New images and changed signer
+   identities deserve a close look.
+
+Generation fails if a chart renders an image that no `signers` rule covers.
+Add a rule only after finding out how upstream really signs that image; use
+`method: none` with a `reason` only when upstream publishes nothing to verify.
+Do not lower `cooldownDays` or loosen an identity to make generation pass.
 
 ### Conventions
 

@@ -220,3 +220,29 @@ func TestPreflightWithMissingKubeconfig(t *testing.T) {
 		t.Errorf("stdout = %q, stderr = %s", stdout, stderr)
 	}
 }
+
+func TestComponentsListsTheLock(t *testing.T) {
+	code, stdout, stderr := run("components", "--output", "json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	var got struct {
+		Components []struct {
+			Name   string `json:"name"`
+			Images []struct {
+				Digest string `json:"digest"`
+			} `json:"images"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if len(got.Components) == 0 || len(got.Components[0].Images) == 0 || got.Components[0].Images[0].Digest == "" {
+		t.Errorf("unexpected components: %+v", got)
+	}
+
+	code, stdout, _ = run("components")
+	if code != ExitOK || !strings.Contains(stdout, "pinned by digest") {
+		t.Errorf("text output: exit = %d, stdout = %q", code, stdout)
+	}
+}

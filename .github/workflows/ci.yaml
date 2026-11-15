@@ -42,3 +42,15 @@ jobs:
       - name: Show cluster logs on failure
         if: failure()
         run: docker compose --profile e2e logs --tail 100 k3s
+
+  # Re-resolves every pinned chart and image and re-verifies every signature.
+  # Fails if components.lock is stale or an upstream tag has moved.
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check components.lock against upstream
+        run: docker compose --profile tools run --rm tools go run ./tools/lockgen -check

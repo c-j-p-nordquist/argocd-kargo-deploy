@@ -11,6 +11,19 @@ services:
       - go-mod:/go/pkg/mod
       - go-build:/root/.cache/go-build
 
+  # Supply chain tools (helm, crane, cosign) for generating and checking
+  # components.lock. Needs network access to the upstream registries.
+  #   docker compose run --rm tools go run ./tools/lockgen
+  tools:
+    build:
+      context: .
+      target: tools
+    profiles: ["tools"]
+    volumes:
+      - .:/app
+      - go-mod:/go/pkg/mod
+      - go-build:/root/.cache/go-build
+
   # The release image: static binary on distroless, non-root.
   #   docker compose run --rm akd questions --output json
   akd:

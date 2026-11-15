@@ -1,0 +1,95 @@
+# The third-party components this toolkit installs, and how each one's images
+# are verified. This file is edited by hand (or by a dependency bot);
+# components.lock is generated from it by tools/lockgen.
+#
+# Every image a chart renders must match a signer rule. An image with no
+# matching rule fails generation, so nothing is trusted by accident.
+
+# A chart must be at least this old before it can be locked. A freshly
+# compromised release is more likely to be caught upstream within that time.
+cooldownDays: 14
+
+components:
+  - name: argo-cd
+    purpose: Syncs the cluster from Git.
+    chart: ghcr.io/argoproj/argo-helm/argo-cd
+    version: 10.11.6
+    signers:
+      - images: quay.io/argoproj/argocd
+        method: keyless
+        identity: https://github.com/argoproj/argo-cd/.github/workflows/image-reuse.yaml@refs/tags/{tag}
+        issuer: https://token.actions.githubusercontent.com
+      - images: ghcr.io/dexidp/dex
+        method: keyless
+        identity: https://github.com/dexidp/dex/.github/workflows/artifacts.yaml@refs/tags/{tag}
+        issuer: https://token.actions.githubusercontent.com
+      - images: ecr-public.aws.com/docker/library/redis
+        method: none
+        reason: Docker Official Images are not signed with cosign. Pinned by digest only.
+
+  - name: cert-manager
+    purpose: Issues the TLS certificates that Kargo's webhooks need.
+    chart: quay.io/jetstack/charts/cert-manager
+    version: v1.21.3
+    set:
+      - crds.enabled=true
+    signers:
+      - images: quay.io/jetstack/cert-manager-
+        method: key
+        key: keys/cert-manager-pubkey-2021-09-20.pem
+        keySHA256: 62151ffda7bb5350367480750ff1cb75d53f0f83baca524044e5274aa83b63a6
+        digestAlgorithm: sha512
+
+  - name: kyverno
+    purpose: Enforces admission policy and verifies image signatures.
+    chart: ghcr.io/kyverno/charts/kyverno
+    version: 3.9.2
+    signers:
+      # Kyverno publishes signed SLSA provenance instead of image signatures.
+      # The signer is the SLSA generator; sourceRepository ties it to Kyverno.
+      - images: reg.kyverno.io/kyverno/
+        method: keyless-provenance
+        identity: https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v2.1.0
+        issuer: https://token.actions.githubusercontent.com
+        sourceRepository: kyverno/kyverno
+      - images: ghcr.io/kyverno/
+        method: keyless-provenance
+        identity: https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v2.1.0
+        issuer: https://token.actions.githubusercontent.com
+        sourceRepository: kyverno/kyverno
+
+  - name: external-secrets
+    purpose: Delivers secrets from the chosen backend, so none are stored in Git.
+    chart: ghcr.io/external-secrets/charts/external-secrets
+    version: 2.14.0
+    signers:
+      - images: ghcr.io/external-secrets/external-secrets
+        method: keyless
+        identity: https://github.com/external-secrets/external-secrets/.github/workflows/release.yml@refs/heads/main
+        issuer: https://token.actions.githubusercontent.com
+
+  - name: kargo
+    purpose: Promotes changes from stage to stage, with Git as the record.
+    chart: ghcr.io/akuity/kargo-charts/kargo
+    version: 1.12.5
+    # The chart refuses to render without these. The values here are
+    # placeholders used only to discover which images the chart needs.
+    set:
+      - api.adminAccount.passwordHash=render-only
+      - api.adminAccount.tokenSigningKey=render-only
+    signers:
+      - images: ghcr.io/akuity/kargo
+        method: keyless
+        identity: https://github.com/akuity/kargo/.github/workflows/release.yaml@refs/tags/{tag}
+        issuer: https://token.actions.githubusercontent.com
+
+  - name: argo-rollouts
+    purpose: Runs analysis checks for Kargo stages. Only installed when asked for.
+    optional: true
+    chart: ghcr.io/argoproj/argo-helm/argo-rollouts
+    version: 2.43.8
+    signers:
+      - images: quay.io/argoproj/argo-rollouts
+        method: keyless
+        identity: https://github.com/argoproj/argo-rollouts/.github/workflows/image-reuse.yaml@refs/tags/{tag}
+        issuer: https://token.actions.githubusercontent.com
