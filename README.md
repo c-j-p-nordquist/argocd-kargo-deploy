@@ -28,6 +28,11 @@ Every chart and image is pinned by digest in
 [components/components.lock](components/components.lock), and each image was
 verified against its upstream signer when the lock was generated.
 
+`akd plan` turns a valid file of answers into a directory of plain manifests
+and a content hash. It works offline from the manifests embedded in the
+binary. The plan is incomplete for now: most answers do not change the
+manifests yet, and the plan says which.
+
 `akd validate` checks a file of answers against the questionnaire. It rejects
 missing answers, unknown fields and any option that weakens the security
 baseline without a written acknowledgement, and it lists the acknowledged

@@ -17,6 +17,7 @@ import (
 
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/components"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/kube"
+	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/plan"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/platform"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/preflight"
 	"github.com/c-j-p-nordquist/argocd-kargo-deploy/internal/questions"
@@ -64,6 +65,8 @@ type env struct {
 	// connect to one.
 	kubeconfig  string
 	kubeContext string
+	// out is the directory a plan is written to.
+	out string
 }
 
 // exitCode lets a command finish normally with a non-zero exit code.
@@ -88,7 +91,7 @@ func commands() []command {
 		{name: "components", summary: "List the pinned third-party components and how each is verified", run: runComponents},
 		{name: "schema", summary: "Print the JSON Schema for platform.yaml", run: runSchema},
 		{name: "validate", summary: "Check platform.yaml against the questionnaire", flags: fileFlag, run: runValidate},
-		{name: "plan", summary: "Render what would be applied and print its hash", run: notImplemented("plan")},
+		{name: "plan", summary: "Render what would be applied and print its hash", flags: planFlags, run: runPlan},
 		{name: "apply", summary: "Apply a previously approved plan", mutates: true, run: notImplemented("apply")},
 		{name: "verify", summary: "Audit the cluster against the security baseline", run: notImplemented("verify")},
 		{name: "version", summary: "Print the version", run: runVersion},
@@ -258,27 +261,9 @@ func fileFlag(fs *flag.FlagSet, e *env) {
 }
 
 func runValidate(e *env) error {
-	var (
-		data []byte
-		err  error
-	)
-	if e.file == "-" {
-		data, err = io.ReadAll(e.stdin)
-	} else {
-		data, err = os.ReadFile(e.file)
-	}
+	res, _, err := readAnswers(e)
 	if err != nil {
-		code, hint := "file_unreadable", ""
-		if errors.Is(err, os.ErrNotExist) {
-			code = "file_not_found"
-			hint = fmt.Sprintf("pass the path with --file, or answer the questions from `%s questions` first", Name)
-		}
-		return &Error{Code: code, Message: err.Error(), Hint: hint, exit: ExitFailure}
-	}
-
-	res, err := platform.Validate(data, questions.Default())
-	if err != nil {
-		return &Error{Code: "invalid_yaml", Message: err.Error(), exit: ExitFailure}
+		return err
 	}
 
 	if e.format == "json" {
@@ -413,5 +398,84 @@ func runComponents(e *env) error {
 	fmt.Fprintf(e.stdout, "\n%d components, %d images, all pinned by digest. %d verified, %d pinned by digest only.\n",
 		len(lock.Components), images, images-unverified, unverified)
 	fmt.Fprintln(e.stdout, "Charts are pinned by digest but not signature-checked.")
+	return nil
+}
+
+func planFlags(fs *flag.FlagSet, e *env) {
+	fileFlag(fs, e)
+	fs.StringVar(&e.out, "out", "plan", "`directory` to write the plan to; it must be empty or hold a previous plan")
+}
+
+// readAnswers loads and validates the answers file. A file with problems is
+// reported the same way validate reports it, and ok is false.
+func readAnswers(e *env) (res platform.Result, ok bool, err error) {
+	var data []byte
+	if e.file == "-" {
+		data, err = io.ReadAll(e.stdin)
+	} else {
+		data, err = os.ReadFile(e.file)
+	}
+	if err != nil {
+		code, hint := "file_unreadable", ""
+		if errors.Is(err, os.ErrNotExist) {
+			code = "file_not_found"
+			hint = fmt.Sprintf("pass the path with --file, or answer the questions from `%s questions` first", Name)
+		}
+		return res, false, &Error{Code: code, Message: err.Error(), Hint: hint, exit: ExitFailure}
+	}
+	res, err = platform.Validate(data, questions.Default())
+	if err != nil {
+		return res, false, &Error{Code: "invalid_yaml", Message: err.Error(), exit: ExitFailure}
+	}
+	return res, res.Valid, nil
+}
+
+func runPlan(e *env) error {
+	answers, ok, err := readAnswers(e)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return &Error{
+			Code:    "answers_invalid",
+			Message: fmt.Sprintf("%s has %d problem(s), so no plan was made", e.file, len(answers.Problems)),
+			Hint:    fmt.Sprintf("run `%s validate --file %s` to see them", Name, e.file),
+			exit:    ExitInvalid,
+		}
+	}
+
+	lock, err := components.LoadLock()
+	if err != nil {
+		return err
+	}
+	p, err := plan.Build(answers, lock)
+	if err != nil {
+		return &Error{Code: "plan_failed", Message: err.Error(), exit: ExitFailure}
+	}
+	if err := p.Write(e.out); err != nil {
+		return &Error{Code: "plan_not_written", Message: err.Error(), exit: ExitFailure}
+	}
+
+	if e.format == "json" {
+		return writeJSON(e.stdout, struct {
+			Directory string `json:"directory"`
+			plan.Plan
+		}{e.out, p})
+	}
+
+	fmt.Fprintf(e.stdout, "Plan written to %s\n\n", e.out)
+	for _, c := range p.Components {
+		fmt.Fprintf(e.stdout, "  %-9s %-17s chart %-8s namespace %-17s %d image(s)\n", c.Stage, c.Name, c.ChartVersion, c.Namespace, c.Images)
+	}
+	if len(p.Deviations) > 0 {
+		fmt.Fprintf(e.stdout, "\nAcknowledged departures from the secure defaults: %d\n", len(p.Deviations))
+		for _, d := range p.Deviations {
+			fmt.Fprintf(e.stdout, "  %s = %s\n", d.Field, d.Option)
+		}
+	}
+	if len(p.NotYetApplied) > 0 {
+		fmt.Fprintf(e.stdout, "\nThis plan is incomplete. These answers do not change the manifests yet:\n  %s\n", strings.Join(p.NotYetApplied, "\n  "))
+	}
+	fmt.Fprintf(e.stdout, "\nPlan hash: %s\n", p.Hash)
 	return nil
 }

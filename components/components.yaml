@@ -2,6 +2,10 @@
 # are verified. This file is edited by hand (or by a dependency bot);
 # components.lock is generated from it by tools/lockgen.
 #
+# Each chart is rendered once, with the "set" values given here, into
+# rendered/<name>.yaml. Those manifests are what gets installed; Helm is not
+# used at install time. namespace and release default to the component name.
+#
 # Every image a chart renders must match a signer rule. An image with no
 # matching rule fails generation, so nothing is trusted by accident.
 
@@ -12,6 +16,8 @@ cooldownDays: 14
 components:
   - name: argo-cd
     purpose: Syncs the cluster from Git.
+    namespace: argocd
+    release: argocd
     chart: ghcr.io/argoproj/argo-helm/argo-cd
     version: 10.11.6
     signers:
@@ -72,11 +78,9 @@ components:
     purpose: Promotes changes from stage to stage, with Git as the record.
     chart: ghcr.io/akuity/kargo-charts/kargo
     version: 1.12.5
-    # The chart refuses to render without these. The values here are
-    # placeholders used only to discover which images the chart needs.
+    # Sign-in is SSO only, so the built-in admin account is never created.
     set:
-      - api.adminAccount.passwordHash=render-only
-      - api.adminAccount.tokenSigningKey=render-only
+      - api.adminAccount.enabled=false
     signers:
       - images: ghcr.io/akuity/kargo
         method: keyless

@@ -63,6 +63,9 @@ type Result struct {
 	// Deviations lists the acknowledged departures from the secure defaults.
 	// It is only meaningful when Valid is true.
 	Deviations []Deviation `json:"deviations"`
+	// Answers maps each question's field to its answer. It is only complete
+	// when Valid is true.
+	Answers map[string]string `json:"-"`
 }
 
 type acknowledgement struct {
@@ -109,6 +112,7 @@ func Validate(data []byte, q questions.Questionnaire) (Result, error) {
 		Valid:      len(v.problems) == 0,
 		Problems:   v.problems,
 		Deviations: deviations,
+		Answers:    answers,
 	}
 	if res.Problems == nil {
 		res.Problems = []Problem{}

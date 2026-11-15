@@ -8,8 +8,8 @@ helping a user install the platform and when changing the code.
 
 ## Installing the platform with a user
 
-The intended flow is below. `preflight`, `questions`, `validate`, `schema`,
-`components` and `version` are implemented so far; the other commands exit with code 3 and the
+The intended flow is below. `preflight`, `questions`, `validate`, `plan`,
+`schema`, `components` and `version` are implemented so far; the other commands exit with code 3 and the
 error code `not_implemented`.
 
 | Step | Command | Changes the cluster | Implemented |
@@ -17,7 +17,7 @@ error code `not_implemented`.
 | 1 | `akd preflight` | No | Yes |
 | 2 | `akd questions` | No | Yes |
 | 3 | `akd validate` | No | Yes |
-| 4 | `akd plan` | No | No |
+| 4 | `akd plan` | No | Yes |
 | 5 | `akd apply --plan <hash>` | Yes | No |
 | 6 | `akd verify` | No | No |
 
@@ -68,6 +68,22 @@ Preflight is read-only. It does not create, change or delete anything.
 
 `akd validate` reads `platform.yaml` in the current directory. Use `--file` for
 another path, or `--file -` to read standard input.
+
+### Making a plan
+
+`akd plan --file platform.yaml --out plan --output json` writes every manifest
+the installation would apply into the `plan` directory and prints the plan's
+`hash`. It does not contact the cluster or the network.
+
+- Show the user the `components`, the `deviations` and the `hash`. The hash is
+  what they approve; `apply` will only accept that hash.
+- `notYetApplied` lists answers that do not change the manifests yet. While it
+  is not empty the plan is incomplete: tell the user which of their answers
+  are not reflected, and do not present the plan as the finished installation.
+- Do not edit files in the plan directory. Any change, added file or removed
+  file makes the plan fail its check. To change the plan, change
+  `platform.yaml` and run `plan` again.
+- The same answers and the same build of the CLI always give the same hash.
 
 ### Showing the user what they will trust
 
@@ -158,19 +174,21 @@ Set `GOOS` and `GOARCH` for the host, then run `bin/akd preflight`.
 ### Updating a component
 
 [components/components.yaml](components/components.yaml) is the input, edited
-by hand. `components/components.lock` is generated from it and embedded in the
-binary; never edit it directly.
+by hand. `components/components.lock` and the manifests in `components/rendered/` are
+generated from it and embedded in the binary; never edit them directly.
 
 1. Change the component's `version` in `components.yaml`.
-2. Regenerate the lock. This resolves every chart and image to a digest and
-   verifies every image, and it refuses a chart younger than `cooldownDays`:
+2. Regenerate the lock and the rendered manifests. This resolves every chart
+   and image to a digest, verifies every image, renders each chart into
+   `components/rendered/`, and refuses a chart younger than `cooldownDays`:
 
    ```bash
    docker compose --profile tools run --rm --build tools go run ./tools/lockgen
    ```
 
-3. Review the diff of `components.lock`. New images and changed signer
-   identities deserve a close look.
+3. Review the diff of `components.lock` and `components/rendered/`. New
+   images, changed signer identities, and new RBAC rules, webhooks or CRDs in
+   the rendered manifests deserve a close look.
 
 Generation fails if a chart renders an image that no `signers` rule covers.
 Add a rule only after finding out how upstream really signs that image; use

@@ -66,10 +66,15 @@ approving the decisions that matter.
    against the questionnaire: every question answered, no unknown fields, and
    an acknowledgement for every option that weakens the baseline. `schema`
    prints a JSON Schema generated from the same questionnaire, for editors.
-4. `plan` renders every manifest that would be applied and prints a summary
-   plus a content hash of the full plan.
-5. `apply` only accepts a plan hash. What the user approved is exactly what is
-   applied.
+4. `plan` assembles every manifest that would be applied into a directory
+   and prints a summary plus a content hash. It needs no network and no
+   cluster: it uses only the manifests embedded in the binary, refuses any
+   image the lock does not pin, and gives the same hash for the same answers.
+   The plan has two stages: `bootstrap` (Argo CD, applied by the CLI) and
+   `platform` (everything Argo CD then syncs).
+5. `apply` only accepts a plan hash. It re-reads the plan directory and
+   refuses it if any file was changed, added or removed since the hash was
+   printed. What the user approved is exactly what is applied.
 6. `verify` audits the live cluster against the baseline.
 
 ### Questionnaire topics
@@ -126,9 +131,17 @@ rule for how every image it needs is verified. `tools/lockgen` turns that into
 - the chart version, digest and publication time
 - every container image the chart renders, by digest
 - how each image was verified, with the exact signer identity
+- the hash of the chart rendered to plain manifests
 
-The lock is embedded in the binary, so a given build of the CLI can only
-install the artifacts it was released with.
+`lockgen` also renders each chart once into `components/rendered/`, with
+every image reference rewritten to include its digest. Those manifests are
+what gets installed. Helm is not used at install time and is not in the
+release binary. A chart that does not render the same way twice is refused,
+because that means it generates secrets or certificates while rendering.
+
+The lock and the rendered manifests are embedded in the binary, so a given
+build of the CLI can only install the artifacts it was released with, and an
+upgrade is a reviewable diff of plain manifests.
 
 Upstreams sign in different ways, and the lock records which applies:
 
@@ -145,11 +158,11 @@ is trusted by accident.
 Not done yet:
 
 - Charts are pinned by digest but their signatures are not checked.
-- Images are discovered by rendering each chart with near-default values.
-  When `plan` renders with the user's answers, it must use the same values
-  the lock was generated from, or generation must cover every combination.
-- Releases do not yet ship fully rendered manifests. The intent is that an
-  upgrade is a reviewable diff and install does not fetch charts at run time.
+- Charts are rendered with near-default values. The hardened values that the
+  security baseline calls for are not set yet.
+- The rendered manifests still contain Helm hook resources (Argo CD and
+  Kyverno have them). `apply` must decide how each hook is run or left out
+  before anything is applied.
 
 ### Verification points
 

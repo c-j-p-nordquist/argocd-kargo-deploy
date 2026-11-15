@@ -34,6 +34,9 @@ jobs:
           docker compose --profile cli run --rm akd questions --output json
           docker compose --profile cli run --rm -T akd validate --file - < examples/platform.yaml
 
+      - name: Plan from the example answers
+        run: docker compose run --rm dev go run ./cmd/akd plan --file examples/platform.yaml --out /tmp/plan
+
       - name: End-to-end preflight against a throwaway cluster
         run: |
           docker compose --profile e2e up -d --wait k3s
@@ -52,5 +55,5 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check components.lock against upstream
+      - name: Check the lock and rendered manifests against upstream
         run: docker compose --profile tools run --rm tools go run ./tools/lockgen -check

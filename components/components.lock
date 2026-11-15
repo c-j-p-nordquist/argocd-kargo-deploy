@@ -2,17 +2,22 @@
 #
 # Every chart and image is pinned by digest. Each image was verified as its
 # "verification" entry describes when this file was generated. Charts are
-# pinned by digest but not signature-checked.
+# pinned by digest but not signature-checked. Each chart is rendered to the
+# manifest file named here, whose hash is checked before it is used.
 schemaVersion: v1alpha1
 components:
   - name: argo-cd
     purpose: Syncs the cluster from Git.
     optional: false
+    namespace: argocd
     chart:
       repository: ghcr.io/argoproj/argo-helm/argo-cd
       version: 10.11.6
       digest: sha256:90f462a0695121f65a71cd053619f80023b4efef6bc211f750ffcaaa1628b5b6
       created: "2026-10-26T10:28:00Z"
+    manifest:
+      path: rendered/argo-cd.yaml
+      sha256: 1da54a6d94c08e80a3aaf6cfe7ab94466d66fef2673f32fd6995ebd913028feb
     images:
       - repository: ecr-public.aws.com/docker/library/redis
         tag: 8.6.4-alpine
@@ -37,11 +42,15 @@ components:
   - name: cert-manager
     purpose: Issues the TLS certificates that Kargo's webhooks need.
     optional: false
+    namespace: cert-manager
     chart:
       repository: quay.io/jetstack/charts/cert-manager
       version: v1.21.3
       digest: sha256:e482675aec32862d323a9218293ff7de81192337998615e4378c56498473f240
       created: "2026-10-23T20:35:32Z"
+    manifest:
+      path: rendered/cert-manager.yaml
+      sha256: c5e15da406f9c0d91a23fda095117a23b95b307691c3edd45ffb658c7a1ce596
     images:
       - repository: quay.io/jetstack/cert-manager-acmesolver
         tag: v1.21.3
@@ -86,11 +95,15 @@ components:
   - name: kyverno
     purpose: Enforces admission policy and verifies image signatures.
     optional: false
+    namespace: kyverno
     chart:
       repository: ghcr.io/kyverno/charts/kyverno
       version: 3.9.2
       digest: sha256:83054f30148c3cfc001087c1f5772eda7c7224e9b74b7f0e70c39c9cafe009d1
       created: "2026-10-21T06:14:31Z"
+    manifest:
+      path: rendered/kyverno.yaml
+      sha256: 1b71d5a9de9255f00acb86bfec219946771d85c4f53db4a177310c3391e341a9
     images:
       - repository: ghcr.io/kyverno/readiness-checker
         tag: v1.19.2
@@ -151,11 +164,15 @@ components:
   - name: external-secrets
     purpose: Delivers secrets from the chosen backend, so none are stored in Git.
     optional: false
+    namespace: external-secrets
     chart:
       repository: ghcr.io/external-secrets/charts/external-secrets
       version: 2.14.0
       digest: sha256:0e3d45f11522f2730ff55deef57bc43e0ff4aadc00bdab5557fa4d354b0c3ab7
       created: "2026-10-23T16:22:22Z"
+    manifest:
+      path: rendered/external-secrets.yaml
+      sha256: 1f6839020321fde59119b658230e562a755e43425df606539c3d2aadf84aa424
     images:
       - repository: ghcr.io/external-secrets/external-secrets
         tag: v2.14.0
@@ -167,11 +184,15 @@ components:
   - name: kargo
     purpose: Promotes changes from stage to stage, with Git as the record.
     optional: false
+    namespace: kargo
     chart:
       repository: ghcr.io/akuity/kargo-charts/kargo
       version: 1.12.5
       digest: sha256:e0081708e87f6aeeee5ac2658db61282145f2eb862ab84a029a42883edb68018
       created: "2026-10-27T21:03:33Z"
+    manifest:
+      path: rendered/kargo.yaml
+      sha256: 7c98da6201f7a6e775b46698ef7bafcbd290789281c4dc09cdf17c82376c59f3
     images:
       - repository: ghcr.io/akuity/kargo
         tag: v1.12.5
@@ -183,11 +204,15 @@ components:
   - name: argo-rollouts
     purpose: Runs analysis checks for Kargo stages. Only installed when asked for.
     optional: true
+    namespace: argo-rollouts
     chart:
       repository: ghcr.io/argoproj/argo-helm/argo-rollouts
       version: 2.43.8
       digest: sha256:09afe23380ec7f804221fb31471e0225cd6328586df2cff4da6093da62aab1ed
       created: "2026-10-16T16:25:56Z"
+    manifest:
+      path: rendered/argo-rollouts.yaml
+      sha256: 15d03059116bdaaae2e3b024a5e8cf5ca8872dd638b38075878a5584f9bf21dc
     images:
       - repository: quay.io/argoproj/argo-rollouts
         tag: v1.10.1

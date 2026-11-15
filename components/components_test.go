@@ -101,11 +101,15 @@ components:
   - name: example
     purpose: An example.
     optional: false
+    namespace: example
     chart:
       repository: registry.example/charts/example
       version: 1.0.0
       digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       created: "2026-01-01T00:00:00Z"
+    manifest:
+      path: rendered/example.yaml
+      sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     images:
       - repository: registry.example/example
         tag: v1.0.0
@@ -137,6 +141,8 @@ func TestParseLockRejectsAnythingThatFloats(t *testing.T) {
 		{"placeholder left in identity", "refs/tags/v1.0.0", "refs/tags/{tag}"},
 		{"unknown field", "    optional: false\n", "    optional: false\n    surprise: true\n"},
 		{"component without images", "    images:\n", "    pictures:\n"},
+		{"component without namespace", "    namespace: example\n", ""},
+		{"manifest without hash", "      sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\n", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,5 +175,74 @@ components:
 	}
 	if _, err := ParseConfig([]byte(cfg + "        sourceRepository: example/example\n")); err != nil {
 		t.Errorf("ParseConfig rejected a complete signer: %v", err)
+	}
+}
+
+func TestRenderedManifestsMatchTheLock(t *testing.T) {
+	lock, err := LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range lock.Components {
+		data, err := Rendered(c)
+		if err != nil {
+			t.Errorf("%s: %v", c.Name, err)
+			continue
+		}
+		// Every image in the manifests must be one the lock pins.
+		pinned := map[string]bool{}
+		for _, img := range c.Images {
+			pinned[img.PinnedRef()] = true
+		}
+		refs, err := ImageRefs(data)
+		if err != nil {
+			t.Errorf("%s: %v", c.Name, err)
+			continue
+		}
+		for _, ref := range refs {
+			if !pinned[ref] {
+				t.Errorf("%s: manifests use %s, which the lock does not pin", c.Name, ref)
+			}
+		}
+	}
+}
+
+func TestRenderedRejectsAManifestThatDoesNotMatchItsHash(t *testing.T) {
+	lock, err := LoadLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := lock.Components[0]
+	c.Manifest.SHA256 = strings.Repeat("0", 64)
+	if _, err := Rendered(c); err == nil {
+		t.Error("Rendered returned manifests that do not match the recorded hash")
+	}
+}
+
+func TestImageRefsFindsImagesInFieldsAndArguments(t *testing.T) {
+	const manifests = `
+kind: Deployment
+spec:
+  template:
+    spec:
+      initContainers:
+        - image: registry.example/init:v1
+      containers:
+        - image: registry.example/app:v2
+          args:
+            - --solver-image=registry.example/solver:v3
+            - --unrelated=value
+---
+kind: ConfigMap
+data:
+  image: ""
+`
+	refs, err := ImageRefs([]byte(manifests))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "registry.example/app:v2 registry.example/init:v1 registry.example/solver:v3"
+	if got := strings.Join(refs, " "); got != want {
+		t.Errorf("refs = %q, want %q", got, want)
 	}
 }

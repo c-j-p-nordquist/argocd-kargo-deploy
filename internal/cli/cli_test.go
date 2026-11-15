@@ -66,7 +66,7 @@ func TestUnexpectedArgument(t *testing.T) {
 }
 
 func TestNotImplementedCommandsReportJSONError(t *testing.T) {
-	for _, name := range []string{"plan", "apply", "verify"} {
+	for _, name := range []string{"apply", "verify"} {
 		t.Run(name, func(t *testing.T) {
 			code, stdout, stderr := run(name, "--output", "json")
 			if code != ExitNotImplemented {
@@ -244,5 +244,47 @@ func TestComponentsListsTheLock(t *testing.T) {
 	code, stdout, _ = run("components")
 	if code != ExitOK || !strings.Contains(stdout, "pinned by digest") {
 		t.Errorf("text output: exit = %d, stdout = %q", code, stdout)
+	}
+}
+
+func TestPlanWritesAPlanAndPrintsItsHash(t *testing.T) {
+	out := t.TempDir()
+	code, stdout, stderr := run("plan", "--file", examplePath, "--out", out, "--output", "json")
+	if code != ExitOK {
+		t.Fatalf("exit = %d, stderr = %s", code, stderr)
+	}
+	var got struct {
+		Directory     string   `json:"directory"`
+		Hash          string   `json:"hash"`
+		NotYetApplied []string `json:"notYetApplied"`
+		Files         []struct {
+			Path string `json:"path"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not JSON: %v", err)
+	}
+	if got.Directory != out || !strings.HasPrefix(got.Hash, "sha256:") || len(got.Files) == 0 {
+		t.Errorf("got %+v", got)
+	}
+	if len(got.NotYetApplied) == 0 {
+		t.Error("the plan does not say which answers it leaves out")
+	}
+
+	// The text form must say the plan is incomplete and print the same hash.
+	code, text, _ := run("plan", "--file", examplePath, "--out", out)
+	if code != ExitOK || !strings.Contains(text, "This plan is incomplete") || !strings.Contains(text, got.Hash) {
+		t.Errorf("text output: exit = %d\n%s", code, text)
+	}
+}
+
+func TestPlanRefusesInvalidAnswers(t *testing.T) {
+	out := t.TempDir()
+	code, stdout, stderr := runWithInput("schemaVersion: v1alpha1\n", "plan", "--file", "-", "--out", out, "--output", "json")
+	if code != ExitInvalid {
+		t.Errorf("exit = %d, want %d", code, ExitInvalid)
+	}
+	if stdout != "" || !strings.Contains(stderr, `"answers_invalid"`) {
+		t.Errorf("stdout = %q, stderr = %s", stdout, stderr)
 	}
 }
